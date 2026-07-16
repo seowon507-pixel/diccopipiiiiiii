@@ -19,12 +19,19 @@ function PostCard({ post, onClick }) {
         >
           {post.category}
         </span>
-        {post.post_type === 'inquiry' && <span className="post-inquiry-badge">문의</span>}
+        {post.post_type === 'external' && <span className="post-inquiry-badge">외부작성</span>}
         <span className="post-card-time">{formatTime(post.updated_at ?? post.created_at)}</span>
       </div>
 
-      {post.title && <p className="post-card-title">{post.title}</p>}
-      <p className="post-card-content">{post.content}</p>
+      <div className="post-card-body">
+        <div className="post-card-text">
+          {post.title && <p className="post-card-title">{post.title}</p>}
+          <p className="post-card-content">{post.content}</p>
+        </div>
+        {post.image_url && (
+          <img className="post-card-thumbnail" src={post.image_url} alt="" />
+        )}
+      </div>
 
       <div className="post-card-meta">
         <span>👍 {post.likes_count ?? 0}</span>
