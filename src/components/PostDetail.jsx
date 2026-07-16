@@ -11,7 +11,7 @@ function formatTime(dateStr) {
   })
 }
 
-function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking }) {
+function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMine, onDelete, deleting }) {
   const [comments, setComments] = useState([])
   const [commentText, setCommentText] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
@@ -65,12 +65,15 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking }) {
           >
             {post.category}
           </span>
-          {post.post_type === 'inquiry' && <span className="post-inquiry-badge">문의</span>}
+          {post.post_type === 'external' && <span className="post-inquiry-badge">외부작성</span>}
           <span className="post-detail-time">{formatTime(post.updated_at ?? post.created_at)}</span>
           {post.updated_at && <span className="map-infowindow-edited-badge">(수정됨)</span>}
         </div>
 
         {post.title && <h2 className="post-detail-title">{post.title}</h2>}
+        {post.image_url && (
+          <img className="post-detail-image" src={post.image_url} alt="게시글 첨부 이미지" />
+        )}
         <p className="post-detail-content">{post.content}</p>
 
         <div className="post-detail-actions">
@@ -116,6 +119,12 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking }) {
             </button>
           </form>
         </div>
+
+        {isMine && (
+          <button type="button" className="post-detail-delete" disabled={deleting} onClick={onDelete}>
+            {deleting ? '삭제 중...' : '내 글 삭제하기'}
+          </button>
+        )}
       </div>
     </div>
   )
