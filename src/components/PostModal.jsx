@@ -1,25 +1,31 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { REALTIME_CATEGORIES, FREE_CATEGORIES, CATEGORY_COLORS } from '../categories'
 
 const TITLE_MAX_LENGTH = 40
 const CONTENT_MAX_LENGTH = 500
 const MIN_CONTENT_LENGTH = 2
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
 
 function PostModal({
   open,
   submitting,
   errorMessage,
   isEditing = false,
-  willBeInquiry = false,
+  willBeExternal = false,
   initialCategory = null,
   initialTitle = '',
   initialContent = '',
+  initialImageUrl = null,
   onSubmit,
   onClose,
 }) {
   const [category, setCategory] = useState(initialCategory)
   const [title, setTitle] = useState(initialTitle)
   const [content, setContent] = useState(initialContent)
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState(initialImageUrl)
+  const [imageError, setImageError] = useState(null)
+  const fileInputRef = useRef(null)
 
   // 모달이 열릴 때마다(새 글 작성 or 기존 글 수정) 입력값을 초기값으로 맞춘다.
   useEffect(() => {
@@ -27,8 +33,11 @@ function PostModal({
       setCategory(initialCategory)
       setTitle(initialTitle)
       setContent(initialContent)
+      setImageFile(null)
+      setImagePreview(initialImageUrl)
+      setImageError(null)
     }
-  }, [open, initialCategory, initialTitle, initialContent])
+  }, [open, initialCategory, initialTitle, initialContent, initialImageUrl])
 
   if (!open) return null
 
@@ -43,10 +52,34 @@ function PostModal({
     onClose()
   }
 
+  function handleImageChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    if (!file.type.startsWith('image/')) {
+      setImageError('이미지 파일만 올릴 수 있어요.')
+      return
+    }
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      setImageError('5MB 이하 이미지만 올릴 수 있어요.')
+      return
+    }
+
+    setImageError(null)
+    setImageFile(file)
+    setImagePreview(URL.createObjectURL(file))
+  }
+
+  function handleRemoveImage() {
+    setImageFile(null)
+    setImagePreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   function handleSubmit(event) {
     event.preventDefault()
     if (!canSubmit) return
-    onSubmit({ category, title: trimmedTitle, content: trimmedContent })
+    onSubmit({ category, title: trimmedTitle, content: trimmedContent, imageFile, removeImage: !imagePreview })
   }
 
   function renderCategoryGroup(label, names) {
@@ -80,9 +113,9 @@ function PostModal({
             5분 이내 근처(50m)에 작성한 글이 있어 수정 모드로 열었어요.
           </p>
         )}
-        {!isEditing && willBeInquiry && (
+        {!isEditing && willBeExternal && (
           <p className="post-modal-edit-notice">
-            내 위치에서 500m 밖이에요. &quot;문의글&quot;로 등록돼요.
+            내 위치에서 500m 밖이에요. &quot;외부작성&quot;으로 등록돼요.
           </p>
         )}
 
@@ -94,6 +127,8 @@ function PostModal({
           value={title}
           maxLength={TITLE_MAX_LENGTH}
           placeholder="제목"
+          spellCheck="true"
+          lang="ko"
           onChange={(event) => setTitle(event.target.value)}
         />
 
@@ -102,11 +137,36 @@ function PostModal({
           value={content}
           maxLength={CONTENT_MAX_LENGTH}
           placeholder="내용을 입력해주세요"
+          spellCheck="true"
+          lang="ko"
           onChange={(event) => setContent(event.target.value)}
         />
 
         <div className="post-modal-counter">
           <span>{content.length}/{CONTENT_MAX_LENGTH}</span>
+        </div>
+
+        <div className="post-modal-image-field">
+          {imagePreview ? (
+            <div className="post-modal-image-preview">
+              <img src={imagePreview} alt="첨부 이미지 미리보기" />
+              <button type="button" className="post-modal-image-remove" onClick={handleRemoveImage}>
+                이미지 제거
+              </button>
+            </div>
+          ) : (
+            <label className="post-modal-image-upload">
+              📷 사진 추가
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageChange}
+                hidden
+              />
+            </label>
+          )}
+          {imageError && <p className="post-modal-error">{imageError}</p>}
         </div>
 
         {errorMessage && <p className="post-modal-error">{errorMessage}</p>}
