@@ -23,6 +23,7 @@ src/
   categories.js         카테고리 목록/색상/유효시간 정의 (실시간형 vs 자유주제형)
   geo.js                하버사인 거리 계산 (공용, 중복 생성 금지)
   abuseCheck.js         중복 게시글 방지 로직
+  myPosts.js            내가 쓴 글의 owner_secret을 localStorage에 보관 (삭제 권한 확인용)
   components/
     PostModal.jsx        게시글 작성/수정 모달 (제목+카테고리+내용)
     CategoryFilter.jsx    지도 위 카테고리 필터 칩
@@ -50,7 +51,8 @@ dummy-data.json          Supabase 연결 실패 시 fallback 데이터
 | content | text | 본문 |
 | confirm_count | int | default 0. 실시간 카테고리 전용 "아직 그런가요?" 확인수 |
 | likes_count | int | default 0. 자유주제 카테고리 전용 "추천" 수 |
-| post_type | text | default 'local'. 'local'(작성자가 500m 이내) / 'inquiry'(500m 밖에서 쓴 문의글) |
+| post_type | text | default 'local'. 'local'(작성자가 500m 이내) / 'external'(500m 밖에서 쓴 "외부작성") |
+| image_url | text | nullable. Storage 'post-images' 버킷의 공개 URL |
 | created_at | timestamptz | default now() |
 | updated_at | timestamptz | nullable. 수정 시에만 채워짐 (있으면 "수정됨" 표시) |
 
@@ -66,13 +68,32 @@ dummy-data.json          Supabase 연결 실패 시 fallback 데이터
 | content | text | |
 | created_at | timestamptz | default now() |
 
-두 테이블 모두 RLS 활성화 + 누구나 select/insert 가능. **posts/comments 둘 다 DELETE
-정책이 없다** — 관리자가 지워야 할 땐 Supabase MCP(execute_sql)로 직접 지워야 함,
-클라이언트 코드에서 delete를 호출해도 조용히 0행 처리된다.
+### post_owners 테이블 (삭제 권한 확인 전용, 절대 직접 select/insert 만들지 말 것)
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| post_id | uuid | pk, posts(id) FK, on delete cascade |
+| owner_secret | text | 게시글 작성 시 클라이언트가 생성해 localStorage(myPosts.js)와 여기 동시에 저장 |
+
+RLS는 켜져 있지만 정책이 하나도 없어서 anon/authenticated는 이 테이블에 절대
+직접 접근 못 한다 — `create_post_with_owner`, `delete_own_post` 두 SECURITY DEFINER
+함수로만 조작된다. **posts 테이블에 직접 삽입/삭제하는 코드를 새로 만들지 말고
+반드시 이 두 RPC를 통해서만 생성/삭제할 것** — 이게 "작성자만 자기 글 삭제 가능"의
+핵심 보안 장치다 (진짜 로그인 없이도 안전하게 소유권을 확인하는 방식).
+
+comments 테이블은 RLS 활성화 + 누구나 select/insert 가능, DELETE 정책 없음(관리자가
+지워야 할 땐 Supabase MCP execute_sql로 직접). posts 테이블도 일반 UPDATE는 여전히
+누구나 가능(수정 권한까지 제한하진 않음 — 요청받은 건 삭제 권한뿐이었음).
 
 게시글 작성 시 post_type 판정: 작성자의 현재 위치와 게시글 좌표 사이 거리가
-500m 이내면 'local', 초과하면 'inquiry'로 자동 등록된다(MapView.jsx의
-INQUIRY_DISTANCE_METERS). 지도 위 아무 위치나 선택해서 쓸 수 있고, 별도 차단은 없다.
+500m 이내면 'local', 초과하면 'external'로 자동 등록된다(MapView.jsx의
+EXTERNAL_DISTANCE_METERS). 지도 클릭/롱프레스뿐 아니라 PlaceSearch에서 검색 결과의
+"여기에 글쓰기" 버튼으로도 원하는 곳에 바로 글을 쓸 수 있다 — 위치 제한은 결과
+표시(문구)에만 영향을 주고, 어디든 글을 쓰는 것 자체는 막지 않는다.
+
+### Storage 'post-images' 버킷
+public 버킷. 누구나 업로드/읽기 가능(post_images_public_read / post_images_anyone_upload
+정책). supabaseClient.js의 uploadPostImage(file)로 업로드 후 공개 URL을 posts.image_url에
+저장한다.
 
 ## 환경변수 (하드코딩 절대 금지)
 ```
@@ -95,6 +116,10 @@ VITE_SUPABASE_ANON_KEY
   안내하지 말고 MCP로 직접 실행한다.
 - 커밋은 기능 단위로 나눠서 하고, 메시지는 한국어로 `feat:`, `fix:`,
   `chore:` 접두사를 사용한다.
+- 사용자가 "지금 요청한 것만 끝내고 다음 지시 전까지 하지 마"라고 하면,
+  그 요청을 완료한 뒤 배포/추가 작업 등 다음 단계로 자동으로 넘어가지 않고
+  반드시 사용자의 다음 지시를 기다린다 (매 기능 라운드마다 자동으로
+  GitHub push → Vercel 배포까지 이어가지 말 것).
 
 ## 디자인 원칙
 모노톤 베이스 + 포인트 컬러 1개. 네온/그라데이션/과한 장식 금지.
@@ -136,6 +161,22 @@ VITE_SUPABASE_ANON_KEY
     PostDetail.jsx라는 React 오버레이로 통일했다 — placeholder/카카오 두
     모드가 같은 상세/댓글 UI를 공유한다. 카카오 InfoWindow 관련 코드를
     다시 만들지 말 것.
+11. 사진 업로드/작성자 삭제/장소검색 글쓰기/한글 맞춤법 — 완료 여부는
+    src/myPosts.js 존재, posts.image_url 컬럼, post_owners 테이블 존재로 확인.
+    - 사진 업로드: PostModal.jsx에 파일 입력(5MB 제한) → uploadPostImage로
+      'post-images' 버킷에 업로드 → 공개 URL을 image_url에 저장. PostCard/
+      PostDetail에서 표시.
+    - 작성자 삭제: post_owners 테이블 + create_post_with_owner/delete_own_post
+      RPC로 구현(위 데이터 모델 섹션 참고). PostDetail에 "내 글 삭제하기" 버튼은
+      myPosts.js의 isMyPost(post.id)가 true일 때만 보인다.
+    - 장소검색 글쓰기: PlaceSearch.jsx 검색 결과에 "여기에 글쓰기" 버튼 추가,
+      선택 시 그 위치로 작성 모달이 열린다(카카오 모드 전용).
+    - 한글 맞춤법: 진짜 맞춤법 API(부산대/다음 등) 연동은 안 했고, textarea/
+      input에 spellCheck="true" lang="ko"만 넣어 브라우저/OS 기본 맞춤법 검사에
+      맡긴다. 실제 문법 교정이 필요하면 서버(Edge Function) 프록시를 통한 외부
+      맞춤법 API 연동이 별도로 필요하다는 점을 기억할 것.
+    - "문의글"이라는 이름은 "외부작성"으로 바뀌었다(post_type 값도 'inquiry'
+      대신 'external'). 코드에서 'inquiry' 문자열을 다시 쓰지 말 것.
 
 새 요청을 받으면 위 단계 중 어디까지 되어 있는지 코드를 먼저 확인하고,
 이미 된 부분은 건드리지 않고 다음 단계부터 이어서 작업한다.
