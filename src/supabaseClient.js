@@ -22,23 +22,52 @@ export async function getPosts() {
   }
 }
 
-// 새 게시글 등록. postType: 'local'(내 위치 500m 이내) | 'inquiry'(500m 밖에서 쓴 문의글)
-export async function createPost({ lat, lng, category, title, content, postType }) {
-  const { data, error } = await supabase
-    .from('posts')
-    .insert({ lat, lng, category, title, content, post_type: postType })
-    .select()
-    .single()
+// 새 게시글 등록. postType: 'local'(내 위치 500m 이내) | 'external'(500m 밖에서 쓴 외부작성)
+// 소유권 확인용 ownerSecret을 서버의 post_owners 테이블에 같이 기록한다(삭제 권한 확인용).
+export async function createPost({ lat, lng, category, title, content, postType, imageUrl, ownerSecret }) {
+  const { data, error } = await supabase.rpc('create_post_with_owner', {
+    p_lat: lat,
+    p_lng: lng,
+    p_category: category,
+    p_title: title,
+    p_content: content,
+    p_post_type: postType,
+    p_image_url: imageUrl ?? null,
+    p_owner_secret: ownerSecret,
+  })
 
   if (error) throw error
   return data
 }
 
+// 게시글 삭제. ownerSecret이 서버에 기록된 값과 일치할 때만 실제로 삭제된다.
+export async function deletePost(id, ownerSecret) {
+  const { data, error } = await supabase.rpc('delete_own_post', {
+    p_post_id: id,
+    p_secret: ownerSecret,
+  })
+
+  if (error) throw error
+  return data // true/false
+}
+
+// 게시글 이미지를 Storage에 업로드하고 공개 URL을 반환한다.
+export async function uploadPostImage(file) {
+  const ext = file.name.split('.').pop()
+  const path = `${crypto.randomUUID()}.${ext}`
+
+  const { error } = await supabase.storage.from('post-images').upload(path, file)
+  if (error) throw error
+
+  const { data } = supabase.storage.from('post-images').getPublicUrl(path)
+  return data.publicUrl
+}
+
 // 기존 게시글 내용 수정 (수정 시각을 updated_at에 기록)
-export async function updatePost(id, { category, title, content }) {
+export async function updatePost(id, { category, title, content, imageUrl }) {
   const { data, error } = await supabase
     .from('posts')
-    .update({ category, title, content, updated_at: new Date().toISOString() })
+    .update({ category, title, content, image_url: imageUrl ?? null, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single()
@@ -113,8 +142,8 @@ export function subscribeToComments(postId, onInsert) {
   }
 }
 
-// posts 테이블의 등록(INSERT)/수정(UPDATE)을 실시간으로 구독한다. 구독 해제 함수를 반환한다.
-export function subscribeToPostChanges({ onInsert, onUpdate }) {
+// posts 테이블의 등록(INSERT)/수정(UPDATE)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
+export function subscribeToPostChanges({ onInsert, onUpdate, onDelete }) {
   const channel = supabase
     .channel('posts-realtime')
     .on(
@@ -126,6 +155,11 @@ export function subscribeToPostChanges({ onInsert, onUpdate }) {
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'posts' },
       (payload) => onUpdate?.(payload.new),
+    )
+    .on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: 'posts' },
+      (payload) => onDelete?.(payload.old),
     )
     .subscribe()
 
