@@ -32,6 +32,8 @@ src/
     CommunityFeed.jsx     시트 안 검색/필터/정렬 + 게시글 목록
     PostCard.jsx          피드의 게시글 카드 1개
     PlaceSearch.jsx        카카오맵 전용 장소/건물 검색 (kakao.maps.services)
+    PinMenu.jsx            빈 핀 클릭 시 글쓰기/질문 등록/핀 삭제 메뉴
+    PlacePreview.jsx       지도 클릭 시(핀 생성 전) 건물/장소 정보 + 핀 만들기/커뮤니티 보기
 dummy-data.json          Supabase 연결 실패 시 fallback 데이터
 .env                     실제 키 (git 추적 금지)
 .env.example             키 이름만 적힌 템플릿
@@ -53,6 +55,7 @@ dummy-data.json          Supabase 연결 실패 시 fallback 데이터
 | likes_count | int | default 0. 자유주제 카테고리 전용 "추천" 수 |
 | post_type | text | default 'local'. 'local'(작성자가 500m 이내) / 'external'(500m 밖에서 쓴 "외부작성") |
 | image_url | text | nullable. Storage 'post-images' 버킷의 공개 URL |
+| icon | text | nullable. categories.js PIN_ICONS의 key. 없으면 카테고리 색 원 마커 |
 | created_at | timestamptz | default now() |
 | updated_at | timestamptz | nullable. 수정 시에만 채워짐 (있으면 "수정됨" 표시) |
 
@@ -89,6 +92,25 @@ comments 테이블은 RLS 활성화 + 누구나 select/insert 가능, DELETE 정
 EXTERNAL_DISTANCE_METERS). 지도 클릭/롱프레스뿐 아니라 PlaceSearch에서 검색 결과의
 "여기에 글쓰기" 버튼으로도 원하는 곳에 바로 글을 쓸 수 있다 — 위치 제한은 결과
 표시(문구)에만 영향을 주고, 어디든 글을 쓰는 것 자체는 막지 않는다.
+
+### pins 테이블 (아직 글이 없는 "빈 핀")
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| id | uuid | pk, default gen_random_uuid() |
+| lat, lng | float8 | 핀 위치 |
+| created_at | timestamptz | default now() |
+
+RLS 활성화 + 누구나 select 가능(다른 사용자 실시간 동기화용). insert/delete 정책은
+없고 `create_pin_with_owner`/`delete_own_pin` RPC로만 조작한다(post_owners와
+동일한 패턴). realtime publication에도 추가되어 있다.
+
+### pin_owners 테이블 (핀 삭제 권한 확인 전용, post_owners와 동일한 패턴)
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| pin_id | uuid | pk, pins(id) FK, on delete cascade |
+| owner_secret | text | 핀 생성 시 클라이언트가 생성해 localStorage(myPosts.js)와 여기 동시에 저장 |
+
+RLS는 켜져 있지만 정책이 없어 anon/authenticated는 절대 직접 접근 못 한다.
 
 ### Storage 'post-images' 버킷
 public 버킷. 누구나 업로드/읽기 가능(post_images_public_read / post_images_anyone_upload
@@ -177,6 +199,51 @@ VITE_SUPABASE_ANON_KEY
       맞춤법 API 연동이 별도로 필요하다는 점을 기억할 것.
     - "문의글"이라는 이름은 "외부작성"으로 바뀌었다(post_type 값도 'inquiry'
       대신 'external'). 코드에서 'inquiry' 문자열을 다시 쓰지 말 것.
+12. 지도 핀 시스템(카카오맵 스타일) — 완료 여부는 src/components/PinMenu.jsx,
+    pins/pin_owners 테이블 존재로 확인.
+    - 지도를 클릭/롱프레스하면 바로 작성 모달이 열리지 않는다. 대신 그
+      좌표에 서버(pins 테이블)에 즉시 저장되는 "빈 핀"(점선 원 + 📌)이
+      생기고, 다른 사용자에게도 실시간으로 보인다.
+    - 빈 핀을 클릭하면 PinMenu.jsx 메뉴가 뜬다: 글쓰기 / 질문 등록 / 핀 삭제.
+      "질문 등록"은 별도 데이터 구조가 아니라 PostModal을 카테고리
+      "동네질문"이 미리 선택된 상태로 여는 빠른 진입 경로일 뿐이다(원하면
+      다른 카테고리로 바꿔도 됨).
+    - 글쓰기/질문 등록으로 실제 게시글이 만들어지면(또는 5분/50m 내 기존
+      글 수정으로 이어지면) 그 시작점이었던 빈 핀은 자동으로 삭제된다
+      (MapView.jsx의 convertPinToPost). 핀 삭제 버튼을 직접 눌러도 같은
+      RPC로 지워진다.
+    - 보안 모델은 post_owners와 완전히 동일한 패턴이다: pins 테이블은
+      누구나 읽을 수 있지만(select), pin_owners 테이블은 정책이 하나도
+      없어 anon이 절대 직접 접근 못 하고, `create_pin_with_owner`/
+      `delete_own_pin` SECURITY DEFINER 함수로만 생성/삭제된다. 소유권
+      토큰은 myPosts.js의 savePinOwnership/getPinOwnerSecret 등으로
+      localStorage에 보관한다(post 소유권과 같은 파일, 다른 storage key).
+      **pins 테이블에 직접 삽입/삭제하는 코드를 새로 만들지 말 것.**
+    - 핀 디자인(아이콘)은 categories.js의 PIN_ICONS 목록(이모지 세트)
+      중 사용자가 PostModal 작성 화면에서 직접 골라 posts.icon 컬럼에
+      저장한다. 카테고리 자동 배정이 아니라 사용자 선택 방식이다.
+      아이콘을 고르지 않으면 기존처럼 카테고리 색 원 마커로 표시된다
+      (getPinIconEmoji가 null을 반환 → 이모지 없이 렌더링).
+    - PlaceSearch의 "여기에 글쓰기"는 핀을 거치지 않고 바로 작성 모달을
+      연다(기존 동작 그대로 유지, pinId 없이 openCreateModal 호출).
+13. 지도 클릭 시 장소 미리보기(건물/장소 정보 + 커뮤니티 이동) — 완료 여부는
+    src/components/PlacePreview.jsx 존재로 확인.
+    - 지도 클릭/롱프레스는 더 이상 곧바로 핀을 만들지 않는다. 먼저
+      PlacePreview.jsx 미리보기가 뜨고(카카오 Geocoder.coord2Address로
+      건물명/주소, categorySearchByRadius('AT4')로 근처 관광명소/공원류
+      이름을 함께 조회), 그 안의 "📌 이 위치에 핀 만들기" 버튼을 눌러야
+      비로소 pins 테이블에 실제로 핀이 생성된다. 핀 시스템(12번)과는
+      의도적으로 분리된 별개 단계다 — 정보만 보고 취소해도 서버에는
+      아무것도 남지 않는다.
+    - 핀 생성이 성공하면 미리보기는 닫히고 그 핀이 바로 선택되어
+      PinMenu(글쓰기/질문 등록/핀 삭제)로 이어진다.
+    - PlacePreview에는 "🏘 커뮤니티 보기" 버튼도 있다. 이건 클릭한 위치
+      기준으로 새로 필터링하는 게 아니라 기존 하단시트(내 위치 1km 이내
+      CommunityFeed)를 그대로 여는 것뿐이다 — 위치별 반경 필터는 아직
+      없다.
+    - placeholder 모드(카카오 키 없음)에서는 kakao.maps.services가 없어
+      건물명/주소 조회를 못 하므로 "이 위치의 주소 정보를 찾을 수
+      없어요"로 표시되지만, 핀 만들기/커뮤니티 보기 버튼은 그대로 동작한다.
 
 새 요청을 받으면 위 단계 중 어디까지 되어 있는지 코드를 먼저 확인하고,
 이미 된 부분은 건드리지 않고 다음 단계부터 이어서 작업한다.
