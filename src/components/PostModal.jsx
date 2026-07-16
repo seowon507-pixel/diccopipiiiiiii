@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { REALTIME_CATEGORIES, FREE_CATEGORIES, CATEGORY_COLORS } from '../categories'
+import { REALTIME_CATEGORIES, FREE_CATEGORIES, CATEGORY_COLORS, PIN_ICONS } from '../categories'
 
 const TITLE_MAX_LENGTH = 40
 const CONTENT_MAX_LENGTH = 500
@@ -16,6 +16,7 @@ function PostModal({
   initialTitle = '',
   initialContent = '',
   initialImageUrl = null,
+  initialIcon = null,
   onSubmit,
   onClose,
 }) {
@@ -25,6 +26,7 @@ function PostModal({
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(initialImageUrl)
   const [imageError, setImageError] = useState(null)
+  const [icon, setIcon] = useState(initialIcon)
   const fileInputRef = useRef(null)
 
   // 모달이 열릴 때마다(새 글 작성 or 기존 글 수정) 입력값을 초기값으로 맞춘다.
@@ -36,8 +38,9 @@ function PostModal({
       setImageFile(null)
       setImagePreview(initialImageUrl)
       setImageError(null)
+      setIcon(initialIcon)
     }
-  }, [open, initialCategory, initialTitle, initialContent, initialImageUrl])
+  }, [open, initialCategory, initialTitle, initialContent, initialImageUrl, initialIcon])
 
   if (!open) return null
 
@@ -79,7 +82,7 @@ function PostModal({
   function handleSubmit(event) {
     event.preventDefault()
     if (!canSubmit) return
-    onSubmit({ category, title: trimmedTitle, content: trimmedContent, imageFile, removeImage: !imagePreview })
+    onSubmit({ category, title: trimmedTitle, content: trimmedContent, imageFile, removeImage: !imagePreview, icon })
   }
 
   function renderCategoryGroup(label, names) {
@@ -121,6 +124,23 @@ function PostModal({
 
         {renderCategoryGroup('실시간 알림', REALTIME_CATEGORIES)}
         {renderCategoryGroup('자유 주제', FREE_CATEGORIES)}
+
+        <div className="post-modal-icon-field">
+          <p className="post-modal-category-group-label">핀 아이콘(선택)</p>
+          <div className="post-modal-icons">
+            {PIN_ICONS.map(({ key, emoji }) => (
+              <button
+                key={key}
+                type="button"
+                className={`post-modal-icon-chip${icon === key ? ' selected' : ''}`}
+                onClick={() => setIcon(icon === key ? null : key)}
+                aria-label={`아이콘 ${emoji}`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <input
           className="post-modal-title-input"
