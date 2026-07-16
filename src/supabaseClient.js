@@ -214,6 +214,46 @@ export function subscribeToComments(postId, onInsert) {
   }
 }
 
+// 동네 전체 공용 채팅 메시지 최근 200개 조회(오래된 순으로 정렬해 반환).
+export async function getChatMessages() {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(200)
+
+  if (error) throw error
+  return data.reverse()
+}
+
+// 채팅 메시지 전송. 발신 위치(lat, lng)를 함께 저장해 클라이언트가 반경 필터링에 쓴다.
+export async function sendChatMessage({ lat, lng, content }) {
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .insert({ lat, lng, content })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+// chat_messages 테이블의 새 메시지(INSERT)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
+export function subscribeToChatMessages(onInsert) {
+  const channel = supabase
+    .channel('chat-messages-realtime')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+      (payload) => onInsert?.(payload.new),
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}
+
 // posts 테이블의 등록(INSERT)/수정(UPDATE)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
 export function subscribeToPostChanges({ onInsert, onUpdate, onDelete }) {
   const channel = supabase
