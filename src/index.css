@@ -103,8 +103,13 @@ body {
 
 .map-marker {
   position: absolute;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
   border: 2px solid #fff;
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -112,6 +117,24 @@ body {
   cursor: pointer;
   padding: 0;
   transition: opacity 0.3s ease;
+}
+
+.map-pin {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  background: #fff;
+  border: 2px dashed #999;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  padding: 0;
 }
 
 .map-infowindow-edited-badge {
@@ -848,4 +871,188 @@ body {
   padding: 6px 10px;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* 핀 메뉴 (빈 핀 클릭 시) */
+
+.pin-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 120;
+}
+
+.pin-menu {
+  width: 100%;
+  max-width: 360px;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 18px 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (min-width: 480px) {
+  .pin-menu-backdrop {
+    align-items: center;
+  }
+
+  .pin-menu {
+    border-radius: 16px;
+  }
+}
+
+.pin-menu-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #222;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+.pin-menu-action {
+  width: 100%;
+  border: 1.5px solid #d8d8d8;
+  background: #fff;
+  color: #222;
+  border-radius: 10px;
+  padding: 12px 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pin-menu-delete {
+  color: #a63e3e;
+  border-color: #f0d8d8;
+}
+
+.pin-menu-delete:disabled {
+  color: #c99;
+  cursor: not-allowed;
+}
+
+.pin-menu-cancel {
+  width: 100%;
+  border: none;
+  background: none;
+  color: #999;
+  font-size: 0.85rem;
+  padding: 8px 0 0;
+  cursor: pointer;
+}
+
+/* 게시글 작성 - 핀 아이콘 선택 */
+
+.post-modal-icon-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.post-modal-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.post-modal-icon-chip {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #d8d8d8;
+  background: #fff;
+  border-radius: 10px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.post-modal-icon-chip.selected {
+  border-color: #2e7d6b;
+  background: #eef5f2;
+}
+
+/* 장소 미리보기 (지도 클릭 시, 핀 생성 전) */
+
+.place-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 120;
+}
+
+.place-preview {
+  width: 100%;
+  max-width: 360px;
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 18px 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (min-width: 480px) {
+  .place-preview-backdrop {
+    align-items: center;
+  }
+
+  .place-preview {
+    border-radius: 16px;
+  }
+}
+
+.place-preview-info {
+  margin-bottom: 4px;
+}
+
+.place-preview-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #1a1a1a;
+}
+
+.place-preview-address {
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.place-preview-address-empty {
+  color: #999;
+}
+
+.place-preview-action {
+  width: 100%;
+  border: 1.5px solid #d8d8d8;
+  background: #fff;
+  color: #222;
+  border-radius: 10px;
+  padding: 12px 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.place-preview-action:disabled {
+  color: #999;
+  cursor: not-allowed;
+}
+
+.place-preview-cancel {
+  width: 100%;
+  border: none;
+  background: none;
+  color: #999;
+  font-size: 0.85rem;
+  padding: 8px 0 0;
+  cursor: pointer;
 }
