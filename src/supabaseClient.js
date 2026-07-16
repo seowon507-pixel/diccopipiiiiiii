@@ -24,7 +24,7 @@ export async function getPosts() {
 
 // 새 게시글 등록. postType: 'local'(내 위치 500m 이내) | 'external'(500m 밖에서 쓴 외부작성)
 // 소유권 확인용 ownerSecret을 서버의 post_owners 테이블에 같이 기록한다(삭제 권한 확인용).
-export async function createPost({ lat, lng, category, title, content, postType, imageUrl, ownerSecret }) {
+export async function createPost({ lat, lng, category, title, content, postType, imageUrl, icon, ownerSecret }) {
   const { data, error } = await supabase.rpc('create_post_with_owner', {
     p_lat: lat,
     p_lng: lng,
@@ -37,7 +37,72 @@ export async function createPost({ lat, lng, category, title, content, postType,
   })
 
   if (error) throw error
+  if (icon) return updatePostIcon(data.id, icon)
   return data
+}
+
+// create_post_with_owner RPC는 icon 인자를 받지 않으므로, 등록 직후 별도 UPDATE로 반영한다.
+async function updatePostIcon(id, icon) {
+  const { data, error } = await supabase
+    .from('posts')
+    .update({ icon })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) throw error
+  return data
+}
+
+// 지도 위 "빈 핀"(아직 글이 없는 위치 마커) 목록 조회
+export async function getPins() {
+  const { data, error } = await supabase.from('pins').select('*')
+  if (error) throw error
+  return data
+}
+
+// 빈 핀 생성. 소유권 확인용 ownerSecret을 pin_owners 테이블에 같이 기록한다(삭제 권한 확인용).
+export async function createPin({ lat, lng, ownerSecret }) {
+  const { data, error } = await supabase.rpc('create_pin_with_owner', {
+    p_lat: lat,
+    p_lng: lng,
+    p_owner_secret: ownerSecret,
+  })
+
+  if (error) throw error
+  return data
+}
+
+// 핀 삭제. ownerSecret이 서버에 기록된 값과 일치할 때만 실제로 삭제된다.
+export async function deletePin(id, ownerSecret) {
+  const { data, error } = await supabase.rpc('delete_own_pin', {
+    p_pin_id: id,
+    p_secret: ownerSecret,
+  })
+
+  if (error) throw error
+  return data // true/false
+}
+
+// pins 테이블의 등록(INSERT)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
+export function subscribeToPinChanges({ onInsert, onDelete }) {
+  const channel = supabase
+    .channel('pins-realtime')
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'pins' },
+      (payload) => onInsert?.(payload.new),
+    )
+    .on(
+      'postgres_changes',
+      { event: 'DELETE', schema: 'public', table: 'pins' },
+      (payload) => onDelete?.(payload.old),
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
 }
 
 // 게시글 삭제. ownerSecret이 서버에 기록된 값과 일치할 때만 실제로 삭제된다.
@@ -64,10 +129,17 @@ export async function uploadPostImage(file) {
 }
 
 // 기존 게시글 내용 수정 (수정 시각을 updated_at에 기록)
-export async function updatePost(id, { category, title, content, imageUrl }) {
+export async function updatePost(id, { category, title, content, imageUrl, icon }) {
   const { data, error } = await supabase
     .from('posts')
-    .update({ category, title, content, image_url: imageUrl ?? null, updated_at: new Date().toISOString() })
+    .update({
+      category,
+      title,
+      content,
+      image_url: imageUrl ?? null,
+      icon: icon ?? null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', id)
     .select()
     .single()
