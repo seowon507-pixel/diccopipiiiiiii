@@ -14,29 +14,35 @@ function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, 
 
     if (!kakao?.maps?.services || !position) return
 
-    const geocoder = new kakao.maps.services.Geocoder()
-    geocoder.coord2Address(position.lng, position.lat, (results, status) => {
-      if (status !== kakao.maps.services.Status.OK || !results[0]) return
-      const { road_address: roadAddress, address: jibunAddress } = results[0]
-      setAddress(roadAddress?.address_name ?? jibunAddress?.address_name ?? null)
-      setBuildingName(roadAddress?.building_name || null)
-    })
+    try {
+      const geocoder = new kakao.maps.services.Geocoder()
+      geocoder.coord2Address(position.lng, position.lat, (results, status) => {
+        if (status !== kakao.maps.services.Status.OK || !results[0]) return
+        const { road_address: roadAddress, address: jibunAddress } = results[0]
+        setAddress(roadAddress?.address_name ?? jibunAddress?.address_name ?? null)
+        setBuildingName(roadAddress?.building_name || null)
+      })
 
-    // 공원 등 이름 있는 장소(관광명소 카테고리)가 근처에 있으면 주소보다 우선해서 보여준다.
-    const places = new kakao.maps.services.Places()
-    places.categorySearchByRadius(
-      'AT4',
-      (data, status) => {
-        if (status === kakao.maps.services.Status.OK && data[0]) {
-          setNearbyPlaceName(data[0].place_name)
-        }
-      },
-      {
-        location: new kakao.maps.LatLng(position.lat, position.lng),
-        radius: 40,
-        sort: kakao.maps.services.SortBy.DISTANCE,
-      },
-    )
+      // 공원 등 이름 있는 장소(관광명소 카테고리)가 근처에 있으면 주소보다 우선해서 보여준다.
+      // 카카오맵 JS SDK의 실제 메서드명은 categorySearch다(categorySearchByRadius는 존재하지 않음 — REST API 경로명과 혼동하지 말 것).
+      const places = new kakao.maps.services.Places()
+      places.categorySearch(
+        'AT4',
+        (data, status) => {
+          if (status === kakao.maps.services.Status.OK && data[0]) {
+            setNearbyPlaceName(data[0].place_name)
+          }
+        },
+        {
+          location: new kakao.maps.LatLng(position.lat, position.lng),
+          radius: 40,
+          sort: kakao.maps.services.SortBy.DISTANCE,
+        },
+      )
+    } catch (err) {
+      // 장소 정보 조회는 부가 기능이라, 여기서 에러가 나도 핀 생성/커뮤니티 보기는 계속 동작해야 한다.
+      console.error('[PlacePreview] 장소 정보 조회 실패', err)
+    }
   }, [kakao, position?.lat, position?.lng])
 
   if (!position) return null
