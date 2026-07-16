@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 // 카카오맵이 활성화된 경우에만 사용하는 장소/건물 검색. kakao.maps.services 라이브러리가 필요하다.
-function PlaceSearch({ kakao, kakaoMap }) {
+function PlaceSearch({ kakao, kakaoMap, onWriteHere }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [open, setOpen] = useState(false)
@@ -25,6 +25,12 @@ function PlaceSearch({ kakao, kakaoMap }) {
     setOpen(false)
   }
 
+  function handleWriteHere(event, place) {
+    event.stopPropagation()
+    onWriteHere(Number(place.y), Number(place.x))
+    setOpen(false)
+  }
+
   return (
     <div className="place-search">
       <form className="place-search-form" onSubmit={handleSearch}>
@@ -43,15 +49,19 @@ function PlaceSearch({ kakao, kakaoMap }) {
         <div className="place-search-results">
           {results.length === 0 && <p className="place-search-empty">검색 결과가 없어요.</p>}
           {results.map((place) => (
-            <button
-              key={place.id}
-              type="button"
-              className="place-search-result"
-              onClick={() => handleSelect(place)}
-            >
-              <span className="place-search-result-name">{place.place_name}</span>
-              <span className="place-search-result-address">{place.road_address_name || place.address_name}</span>
-            </button>
+            <div key={place.id} className="place-search-result">
+              <button type="button" className="place-search-result-main" onClick={() => handleSelect(place)}>
+                <span className="place-search-result-name">{place.place_name}</span>
+                <span className="place-search-result-address">{place.road_address_name || place.address_name}</span>
+              </button>
+              <button
+                type="button"
+                className="place-search-write-here"
+                onClick={(event) => handleWriteHere(event, place)}
+              >
+                여기에 글쓰기
+              </button>
+            </div>
           ))}
         </div>
       )}
