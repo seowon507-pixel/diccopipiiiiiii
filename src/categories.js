@@ -1,4 +1,10 @@
-export const CATEGORIES = ['웨이팅', '혼잡', '사건사고', '교통']
+// 실시간 알림형 카테고리 (유효시간이 있어 자동 만료된다)
+export const REALTIME_CATEGORIES = ['웨이팅', '혼잡', '사건사고', '교통']
+
+// 자유주제 커뮤니티 카테고리 (유효시간 없음)
+export const FREE_CATEGORIES = ['동네질문', '동네소식', '맛집', '일상', '취미']
+
+export const CATEGORIES = [...REALTIME_CATEGORIES, ...FREE_CATEGORIES]
 
 // 카테고리별 마커/칩 색상. 채도는 절제하되 구분은 명확하게.
 export const CATEGORY_COLORS = {
@@ -6,11 +12,16 @@ export const CATEGORY_COLORS = {
   혼잡: '#A6763A',
   사건사고: '#A63E3E',
   교통: '#3E8F6B',
+  동네질문: '#6E4C8C',
+  동네소식: '#3E8F99',
+  맛집: '#C9634F',
+  일상: '#8C8339',
+  취미: '#8C4C74',
 }
 
 export const DEFAULT_CATEGORY_COLOR = '#666666'
 
-// 카테고리별 유효시간(분)
+// 카테고리별 유효시간(분). 여기 없는 카테고리(자유주제)는 만료되지 않는다.
 export const CATEGORY_VALID_MINUTES = {
   웨이팅: 30,
   혼잡: 20,
@@ -18,4 +29,6 @@ export const CATEGORY_VALID_MINUTES = {
   교통: 60,
 }
 
-export const DEFAULT_VALID_MINUTES = 60
+export function categoryHasExpiry(category) {
+  return CATEGORY_VALID_MINUTES[category] != null
+}
