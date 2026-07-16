@@ -12,7 +12,7 @@
 - Vite + React (함수형 컴포넌트 + Hooks만, 클래스 컴포넌트 금지)
 - 지도: 카카오맵 JS SDK
 - DB/실시간: Supabase (Postgres + Realtime)
-- PWA: vite-plugin-pwa
+- PWA: 현재 미적용 (vite-plugin-pwa 제거됨, 아래 8번 참고)
 
 ## 파일 구조 (이 구조를 벗어나지 말 것)
 ```
@@ -77,9 +77,17 @@ VITE_SUPABASE_ANON_KEY
 5. 위치 기반 필터 — Geolocation 관련 코드 존재 확인
 6. 카테고리 필터 토글 — CategoryFilter.jsx 존재 확인
 7. 중복 방지 — abuseCheck.js 존재 확인
-8. PWA 설정 — vite.config.js 내 VitePWA 플러그인 존재 확인
+8. PWA 설정 — 한 번 붙였다가 제거됨. Vercel에 파일 직접 업로드로 배포하는
+   과정에서 아이콘(PNG) 바이너리를 안전하게 다룰 방법이 마땅치 않아
+   vite-plugin-pwa/manifest/아이콘 세트를 통째로 뺐다. 필요해지면
+   git 저장소를 정상적으로 clone → 아이콘 파일을 실제 바이너리로 커밋 →
+   vite-plugin-pwa 재설치 순서로 다시 붙이는 게 안전하다. vite.config.js에
+   VitePWA 플러그인이 없으면 아직 미적용 상태로 판단한다.
 9. 카카오맵 실제 연동 — .env에 VITE_KAKAO_MAP_KEY 값이 실제로
-   채워져 있는지로 판단 (placeholder 문구가 아직 남아있으면 미완료)
+   채워져 있는지로 판단 (placeholder 문구가 아직 남아있으면 미완료).
+   카카오 디벨로퍼스 콘솔에서 "Web 플랫폼 도메인" 등록과 "카카오맵" 제품
+   활성화가 별도로 필요하다는 점도 기억해둘 것 (둘 다 안 하면 도메인
+   불일치/서비스 비활성 에러가 남).
 
 새 요청을 받으면 위 단계 중 어디까지 되어 있는지 코드를 먼저 확인하고,
 이미 된 부분은 건드리지 않고 다음 단계부터 이어서 작업한다.
