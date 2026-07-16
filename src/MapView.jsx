@@ -3,8 +3,10 @@ import {
   getPosts,
   createPost,
   updatePost,
+  deletePost,
   incrementConfirmCount,
   incrementLikes,
+  uploadPostImage,
   subscribeToPostChanges,
 } from './supabaseClient'
 import {
@@ -15,6 +17,7 @@ import {
 } from './categories'
 import { getDistanceMeters } from './geo'
 import { findNearbyDuplicate, saveLastPost } from './abuseCheck'
+import { saveOwnership, forgetOwnership, getOwnerSecret, isMyPost, generateOwnerSecret } from './myPosts'
 import PostModal from './components/PostModal.jsx'
 import CategoryFilter from './components/CategoryFilter.jsx'
 import PostDetail from './components/PostDetail.jsx'
@@ -31,8 +34,8 @@ const DEV_LOCATION_OVERRIDE = { lat: 37.5575, lng: 126.9251 }
 const NEARBY_RADIUS_METERS = 1000
 // placeholder 가상 뷰포트는 필터 반경보다 조금 더 넉넉하게 잡는다.
 const PLACEHOLDER_VIEWPORT_RADIUS_METERS = 1300
-// 이 반경 밖에서 쓴 글은 "문의글"로 등록된다.
-const INQUIRY_DISTANCE_METERS = 500
+// 이 반경 밖에서 쓴 글은 "외부작성"으로 등록된다.
+const EXTERNAL_DISTANCE_METERS = 500
 
 const LONG_PRESS_MS = 500
 const MOVE_CANCEL_PX = 10
@@ -147,6 +150,7 @@ function MapView() {
   const [submitError, setSubmitError] = useState(null)
   const [confirmingPostId, setConfirmingPostId] = useState(null)
   const [likingPostId, setLikingPostId] = useState(null)
+  const [deletingPostId, setDeletingPostId] = useState(null)
   const [now, setNow] = useState(() => Date.now())
   // null이면 새 글 작성, 값이 있으면 해당 게시글 수정 모드
   const [editTarget, setEditTarget] = useState(null)
@@ -218,7 +222,7 @@ function MapView() {
     return () => clearInterval(interval)
   }, [])
 
-  // 다른 사용자가 등록/수정한 게시글을 실시간으로 반영한다.
+  // 다른 사용자가 등록/수정/삭제한 게시글을 실시간으로 반영한다.
   useEffect(() => {
     const unsubscribe = subscribeToPostChanges({
       onInsert: (newPost) => {
@@ -226,6 +230,10 @@ function MapView() {
       },
       onUpdate: (updatedPost) => {
         setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? { ...post, ...updatedPost } : post)))
+      },
+      onDelete: (deletedPost) => {
+        setPosts((prev) => prev.filter((post) => post.id !== deletedPost.id))
+        setSelectedPostId((prev) => (prev === deletedPost.id ? null : prev))
       },
     })
     return unsubscribe
@@ -261,7 +269,7 @@ function MapView() {
 
       myLocationCircleRef.current = new kakao.maps.Circle({
         center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
-        radius: INQUIRY_DISTANCE_METERS,
+        radius: EXTERNAL_DISTANCE_METERS,
         strokeWeight: 1.5,
         strokeColor: '#2e7d6b',
         strokeOpacity: 0.6,
@@ -342,6 +350,7 @@ function MapView() {
         category: existingPost.category,
         title: existingPost.title,
         content: existingPost.content,
+        image_url: existingPost.image_url,
       })
     } else {
       setEditTarget(null)
@@ -357,20 +366,25 @@ function MapView() {
     setEditTarget(null)
   }
 
-  async function handleSubmitPost({ category, title, content }) {
+  async function handleSubmitPost({ category, title, content, imageFile, removeImage }) {
     if (!pendingPosition) return
 
     setSubmitting(true)
     setSubmitError(null)
     try {
+      const imageUrl = imageFile
+        ? await uploadPostImage(imageFile)
+        : (removeImage ? null : editTarget?.image_url ?? null)
+
       if (editTarget) {
-        await updatePost(editTarget.id, { category, title, content })
+        await updatePost(editTarget.id, { category, title, content, imageUrl })
         saveLastPost({ id: editTarget.id, lat: editTarget.lat, lng: editTarget.lng })
       } else {
         const distanceFromMe = userLocation
           ? getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng)
           : 0
-        const postType = distanceFromMe > INQUIRY_DISTANCE_METERS ? 'inquiry' : 'local'
+        const postType = distanceFromMe > EXTERNAL_DISTANCE_METERS ? 'external' : 'local'
+        const ownerSecret = generateOwnerSecret()
 
         const created = await createPost({
           lat: pendingPosition.lat,
@@ -379,8 +393,11 @@ function MapView() {
           title,
           content,
           postType,
+          imageUrl,
+          ownerSecret,
         })
         saveLastPost({ id: created.id, lat: pendingPosition.lat, lng: pendingPosition.lng })
+        saveOwnership(created.id, ownerSecret)
       }
       closeCreateModal()
     } catch (err) {
@@ -388,6 +405,26 @@ function MapView() {
       setSubmitError('저장에 실패했습니다. 다시 시도해주세요.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // 작성자 본인만 삭제 가능(서버가 owner_secret 일치 여부를 확인한다).
+  async function handleDeletePost(post) {
+    const ownerSecret = getOwnerSecret(post.id)
+    if (!ownerSecret) return
+
+    setDeletingPostId(post.id)
+    try {
+      const deleted = await deletePost(post.id, ownerSecret)
+      if (deleted) {
+        forgetOwnership(post.id)
+        setPosts((prev) => prev.filter((p) => p.id !== post.id))
+        setSelectedPostId(null)
+      }
+    } catch (err) {
+      console.error('[MapView] 게시글 삭제 실패', err)
+    } finally {
+      setDeletingPostId(null)
     }
   }
 
@@ -499,20 +536,26 @@ function MapView() {
 
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null
 
-  const willBeInquiry = !editTarget && Boolean(pendingPosition) && Boolean(userLocation)
-    && getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng) > INQUIRY_DISTANCE_METERS
+  const willBeExternal = !editTarget && Boolean(pendingPosition) && Boolean(userLocation)
+    && getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng) > EXTERNAL_DISTANCE_METERS
 
   const placeholderBounds = userLocation ? getPlaceholderBounds(userLocation) : null
   const placeholderPositions = placeholderBounds ? projectToPercent(nearbyPosts, placeholderBounds) : new Map()
   const myCircleDiameterPx = Math.min(placeholderSize.width, placeholderSize.height)
-    * (INQUIRY_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
+    * (EXTERNAL_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
 
   return (
     <>
       {locationBanner}
       <div className="map-view">
         <CategoryFilter activeCategories={activeCategories} onToggle={toggleCategory} />
-        {kakaoReady && <PlaceSearch kakao={window.kakao} kakaoMap={kakaoMapRef.current} />}
+        {kakaoReady && (
+          <PlaceSearch
+            kakao={window.kakao}
+            kakaoMap={kakaoMapRef.current}
+            onWriteHere={(lat, lng) => openCreateModal(lat, lng)}
+          />
+        )}
 
         {!KAKAO_MAP_KEY ? (
           <div
@@ -590,6 +633,9 @@ function MapView() {
           confirming={confirmingPostId === selectedPost.id}
           onLike={() => handleLike(selectedPost)}
           liking={likingPostId === selectedPost.id}
+          isMine={isMyPost(selectedPost.id)}
+          onDelete={() => handleDeletePost(selectedPost)}
+          deleting={deletingPostId === selectedPost.id}
         />
       )}
 
@@ -598,10 +644,11 @@ function MapView() {
         submitting={submitting}
         errorMessage={submitError}
         isEditing={Boolean(editTarget)}
-        willBeInquiry={willBeInquiry}
+        willBeExternal={willBeExternal}
         initialCategory={editTarget?.category ?? null}
         initialTitle={editTarget?.title ?? ''}
         initialContent={editTarget?.content ?? ''}
+        initialImageUrl={editTarget?.image_url ?? null}
         onSubmit={handleSubmitPost}
         onClose={closeCreateModal}
       />
