@@ -33,6 +33,17 @@ export function categoryHasExpiry(category) {
   return CATEGORY_VALID_MINUTES[category] != null
 }
 
+// 카테고리 유효시간 대비 경과 비율. 자유주제(유효시간 없음)는 항상 0을 반환한다.
+// MapView(마커 반투명 처리)와 usePosts(반경 필터의 만료 판정)가 공유하는 공용 함수 — 중복 정의 금지.
+export function getElapsedRatio(post, referenceTime) {
+  const validMinutes = CATEGORY_VALID_MINUTES[post.category]
+  if (validMinutes == null) return 0
+
+  const validMs = validMinutes * 60 * 1000
+  const elapsedMs = referenceTime - new Date(post.created_at).getTime()
+  return elapsedMs / validMs
+}
+
 // 글 작성 시 고를 수 있는 마커 아이콘 세트. 선택하지 않으면 카테고리 색 원 마커로 표시된다.
 export const PIN_ICONS = [
   { key: 'pin', emoji: '📍' },
