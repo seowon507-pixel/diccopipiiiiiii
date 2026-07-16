@@ -32,3 +32,21 @@ export const CATEGORY_VALID_MINUTES = {
 export function categoryHasExpiry(category) {
   return CATEGORY_VALID_MINUTES[category] != null
 }
+
+// 글 작성 시 고를 수 있는 마커 아이콘 세트. 선택하지 않으면 카테고리 색 원 마커로 표시된다.
+export const PIN_ICONS = [
+  { key: 'pin', emoji: '📍' },
+  { key: 'star', emoji: '⭐' },
+  { key: 'alert', emoji: '❗' },
+  { key: 'question', emoji: '❓' },
+  { key: 'food', emoji: '🍜' },
+  { key: 'cafe', emoji: '☕' },
+  { key: 'car', emoji: '🚗' },
+  { key: 'home', emoji: '🏠' },
+  { key: 'heart', emoji: '❤️' },
+  { key: 'flag', emoji: '🚩' },
+]
+
+export function getPinIconEmoji(key) {
+  return PIN_ICONS.find((icon) => icon.key === key)?.emoji ?? null
+}
