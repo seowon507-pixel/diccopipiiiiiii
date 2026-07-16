@@ -1,32 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
-  getPosts,
   createPost,
   updatePost,
-  deletePost,
-  incrementConfirmCount,
-  incrementLikes,
   uploadPostImage,
-  subscribeToPostChanges,
   getPins,
   createPin,
   deletePin,
   subscribeToPinChanges,
 } from './supabaseClient'
-import {
-  CATEGORIES,
-  CATEGORY_COLORS,
-  DEFAULT_CATEGORY_COLOR,
-  CATEGORY_VALID_MINUTES,
-  getPinIconEmoji,
-} from './categories'
+import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, getElapsedRatio, getPinIconEmoji } from './categories'
 import { getDistanceMeters } from './geo'
 import { findNearbyDuplicate, saveLastPost } from './abuseCheck'
 import {
   saveOwnership,
-  forgetOwnership,
-  getOwnerSecret,
-  isMyPost,
   generateOwnerSecret,
   savePinOwnership,
   forgetPinOwnership,
@@ -34,20 +20,12 @@ import {
 } from './myPosts'
 import PostModal from './components/PostModal.jsx'
 import CategoryFilter from './components/CategoryFilter.jsx'
-import PostDetail from './components/PostDetail.jsx'
-import BottomSheet from './components/BottomSheet.jsx'
-import CommunityFeed from './components/CommunityFeed.jsx'
 import PlaceSearch from './components/PlaceSearch.jsx'
 import PinMenu from './components/PinMenu.jsx'
 import PlacePreview from './components/PlacePreview.jsx'
 
 const KAKAO_MAP_KEY = import.meta.env.VITE_KAKAO_MAP_KEY
 
-// 위치 권한이 없거나 실패하면 서울시청 좌표로 대체한다.
-const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978 }
-// 개발 모드 전용: 시드 데이터가 위치한 동네 중심. 실제 기기 위치와 무관하게 마커를 볼 수 있도록 강제한다.
-const DEV_LOCATION_OVERRIDE = { lat: 37.5575, lng: 126.9251 }
-const NEARBY_RADIUS_METERS = 1000
 // placeholder 가상 뷰포트는 필터 반경보다 조금 더 넉넉하게 잡는다.
 const PLACEHOLDER_VIEWPORT_RADIUS_METERS = 1300
 // 이 반경 밖에서 쓴 글은 "외부작성"으로 등록된다.
@@ -57,7 +35,6 @@ const LONG_PRESS_MS = 500
 const MOVE_CANCEL_PX = 10
 const NEAR_EXPIRY_RATIO = 0.7
 const NEAR_EXPIRY_OPACITY = 0.45
-const TICK_INTERVAL_MS = 30 * 1000
 
 function isTouchDevice() {
   return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
@@ -76,16 +53,6 @@ function loadKakaoMapScript(appKey) {
     script.onerror = reject
     document.head.appendChild(script)
   })
-}
-
-// 카테고리 유효시간 대비 경과 비율. 자유주제(유효시간 없음)는 항상 0을 반환한다.
-function getElapsedRatio(post, referenceTime) {
-  const validMinutes = CATEGORY_VALID_MINUTES[post.category]
-  if (validMinutes == null) return 0
-
-  const validMs = validMinutes * 60 * 1000
-  const elapsedMs = referenceTime - new Date(post.created_at).getTime()
-  return elapsedMs / validMs
 }
 
 function getMarkerOpacity(post, referenceTime) {
@@ -163,7 +130,17 @@ function isMarkerOrInfoWindowTarget(target) {
   return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .category-filter'))
 }
 
-function MapView() {
+// 지도 렌더링 전담. 게시글 목록/위치/카테고리 필터는 App에서 props로 받아 커뮤니티 탭과 공유한다.
+function MapView({
+  userLocation,
+  locationLoading,
+  locationDenied,
+  nearbyPosts,
+  activeCategories,
+  onToggleCategory,
+  onSelectPost,
+  onOpenCommunity,
+}) {
   const mapContainerRef = useRef(null)
   const placeholderRef = useRef(null)
   const kakaoMapRef = useRef(null)
@@ -174,9 +151,7 @@ function MapView() {
   const touchStartRef = useRef({ x: 0, y: 0 })
   const lastTouchTimeRef = useRef(0)
 
-  const [posts, setPosts] = useState([])
   const [pins, setPins] = useState([])
-  const [selectedPostId, setSelectedPostId] = useState(null)
   const [selectedPinId, setSelectedPinId] = useState(null)
   const [deletingPinId, setDeletingPinId] = useState(null)
   // 지도를 클릭한 지점(아직 서버에 핀이 만들어지지 않은 상태)의 건물/장소 미리보기
@@ -188,41 +163,16 @@ function MapView() {
   const [quickCategory, setQuickCategory] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
-  const [confirmingPostId, setConfirmingPostId] = useState(null)
-  const [likingPostId, setLikingPostId] = useState(null)
-  const [deletingPostId, setDeletingPostId] = useState(null)
   const [now, setNow] = useState(() => Date.now())
   // null이면 새 글 작성, 값이 있으면 해당 게시글 수정 모드
   const [editTarget, setEditTarget] = useState(null)
 
-  const [userLocation, setUserLocation] = useState(null)
-  const [locationLoading, setLocationLoading] = useState(true)
-  const [locationDenied, setLocationDenied] = useState(false)
-
   const [kakaoReady, setKakaoReady] = useState(false)
   const [placeholderSize, setPlaceholderSize] = useState({ width: 0, height: 0 })
-  const [sheetOpen, setSheetOpen] = useState(false)
-
-  // 기본은 전체 카테고리 켜짐
-  const [activeCategories, setActiveCategories] = useState(() => new Set(CATEGORIES))
-
-  function toggleCategory(name) {
-    setActiveCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }
 
   useEffect(() => {
-    let cancelled = false
-    getPosts().then((data) => {
-      if (!cancelled) setPosts(data)
-    })
-    return () => {
-      cancelled = true
-    }
+    const interval = setInterval(() => setNow(Date.now()), 30 * 1000)
+    return () => clearInterval(interval)
   }, [])
 
   // 아직 글이 없는 "빈 핀" 목록도 함께 불러온다.
@@ -234,60 +184,6 @@ function MapView() {
     return () => {
       cancelled = true
     }
-  }, [])
-
-  // 사용자 위치를 실시간으로 추적해서 지도 중심/반경원에 반영한다. 실패/거부 시 서울시청으로 대체한다.
-  useEffect(() => {
-    if (import.meta.env.DEV) {
-      setUserLocation(DEV_LOCATION_OVERRIDE)
-      setLocationLoading(false)
-      return
-    }
-
-    if (!navigator.geolocation) {
-      setUserLocation(SEOUL_CITY_HALL)
-      setLocationDenied(true)
-      setLocationLoading(false)
-      return
-    }
-
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude })
-        setLocationLoading(false)
-      },
-      () => {
-        setUserLocation(SEOUL_CITY_HALL)
-        setLocationDenied(true)
-        setLocationLoading(false)
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
-    )
-
-    return () => navigator.geolocation.clearWatch(watchId)
-  }, [])
-
-  // 유효시간 경과율(반투명/만료)을 주기적으로 재계산하기 위한 시계
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), TICK_INTERVAL_MS)
-    return () => clearInterval(interval)
-  }, [])
-
-  // 다른 사용자가 등록/수정/삭제한 게시글을 실시간으로 반영한다.
-  useEffect(() => {
-    const unsubscribe = subscribeToPostChanges({
-      onInsert: (newPost) => {
-        setPosts((prev) => (prev.some((post) => post.id === newPost.id) ? prev : [newPost, ...prev]))
-      },
-      onUpdate: (updatedPost) => {
-        setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? { ...post, ...updatedPost } : post)))
-      },
-      onDelete: (deletedPost) => {
-        setPosts((prev) => prev.filter((post) => post.id !== deletedPost.id))
-        setSelectedPostId((prev) => (prev === deletedPost.id ? null : prev))
-      },
-    })
-    return unsubscribe
   }, [])
 
   // 다른 사용자가 만들거나 지운 빈 핀을 실시간으로 반영한다.
@@ -304,27 +200,10 @@ function MapView() {
     return unsubscribe
   }, [])
 
-  // 카테고리 필터가 켜져 있고, 만료되지 않고, 사용자 위치 반경 1km 이내인 게시글만 남긴다.
-  const nearbyPosts = useMemo(() => {
-    if (!userLocation) return []
-
-    return posts.filter((post) => {
-      if (!activeCategories.has(post.category)) return false
-      if (getElapsedRatio(post, now) >= 1) return false
-      const distance = getDistanceMeters(userLocation.lat, userLocation.lng, post.lat, post.lng)
-      return distance <= NEARBY_RADIUS_METERS
-    })
-  }, [posts, now, userLocation, activeCategories])
-
   // 빈 핀도 게시글과 동일하게 반경 1km 이내만 지도에 표시한다.
-  const nearbyPins = useMemo(() => {
-    if (!userLocation) return []
-
-    return pins.filter((pin) => {
-      const distance = getDistanceMeters(userLocation.lat, userLocation.lng, pin.lat, pin.lng)
-      return distance <= NEARBY_RADIUS_METERS
-    })
-  }, [pins, userLocation])
+  const nearbyPins = userLocation
+    ? pins.filter((pin) => getDistanceMeters(userLocation.lat, userLocation.lng, pin.lat, pin.lng) <= 1000)
+    : []
 
   // 카카오맵 초기화. 딱 한 번만 생성하고, 이후 위치 갱신은 반경원만 옮긴다.
   useEffect(() => {
@@ -392,12 +271,12 @@ function MapView() {
       })
 
       kakao.maps.event.addListener(marker, 'click', () => {
-        setSelectedPostId(post.id)
+        onSelectPost(post.id)
       })
 
       return marker
     })
-  }, [nearbyPosts, now])
+  }, [nearbyPosts, now, onSelectPost])
 
   // nearbyPins가 바뀔 때마다 빈 핀 마커를 다시 그린다.
   useEffect(() => {
@@ -443,7 +322,7 @@ function MapView() {
     setSelectedPinId(null)
 
     const duplicate = findNearbyDuplicate(lat, lng)
-    const existingPost = duplicate ? posts.find((post) => post.id === duplicate.id) : null
+    const existingPost = duplicate ? nearbyPosts.find((post) => post.id === duplicate.id) : null
 
     if (existingPost) {
       setEditTarget({
@@ -557,10 +436,10 @@ function MapView() {
     }
   }
 
-  // PlacePreview에서 "커뮤니티 보기"를 누르면 미리보기를 닫고 하단시트를 연다.
+  // PlacePreview에서 "커뮤니티 보기"를 누르면 미리보기를 닫고 커뮤니티 탭으로 전환한다.
   function handleViewCommunityFromPreview() {
     setPreviewPosition(null)
-    setSheetOpen(true)
+    onOpenCommunity()
   }
 
   // 핀 메뉴에서 "핀 삭제"를 누르면 본인이 만든 핀만(owner_secret 일치) 삭제된다.
@@ -580,54 +459,6 @@ function MapView() {
       console.error('[MapView] 핀 삭제 실패', err)
     } finally {
       setDeletingPinId(null)
-    }
-  }
-
-  // 작성자 본인만 삭제 가능(서버가 owner_secret 일치 여부를 확인한다).
-  async function handleDeletePost(post) {
-    const ownerSecret = getOwnerSecret(post.id)
-    if (!ownerSecret) return
-
-    setDeletingPostId(post.id)
-    try {
-      const deleted = await deletePost(post.id, ownerSecret)
-      if (deleted) {
-        forgetOwnership(post.id)
-        setPosts((prev) => prev.filter((p) => p.id !== post.id))
-        setSelectedPostId(null)
-      }
-    } catch (err) {
-      console.error('[MapView] 게시글 삭제 실패', err)
-    } finally {
-      setDeletingPostId(null)
-    }
-  }
-
-  // "아직 그런가요?" 확인 시 confirm_count를 1 증가시킨다. 화면 반영은 realtime UPDATE로 처리한다.
-  async function handleConfirm(post) {
-    if (confirmingPostId === post.id) return
-
-    setConfirmingPostId(post.id)
-    try {
-      await incrementConfirmCount(post.id, post.confirm_count)
-    } catch (err) {
-      console.error('[MapView] confirm_count 갱신 실패', err)
-    } finally {
-      setConfirmingPostId(null)
-    }
-  }
-
-  // 추천(좋아요) 시 likes_count를 1 증가시킨다.
-  async function handleLike(post) {
-    if (likingPostId === post.id) return
-
-    setLikingPostId(post.id)
-    try {
-      await incrementLikes(post.id, post.likes_count ?? 0)
-    } catch (err) {
-      console.error('[MapView] likes_count 갱신 실패', err)
-    } finally {
-      setLikingPostId(null)
     }
   }
 
@@ -709,7 +540,6 @@ function MapView() {
     )
   }
 
-  const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null
   const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null
 
   const willBeExternal = !editTarget && Boolean(pendingPosition) && Boolean(userLocation)
@@ -725,7 +555,7 @@ function MapView() {
     <>
       {locationBanner}
       <div className="map-view">
-        <CategoryFilter activeCategories={activeCategories} onToggle={toggleCategory} />
+        <CategoryFilter activeCategories={activeCategories} onToggle={onToggleCategory} />
         {kakaoReady && (
           <PlaceSearch
             kakao={window.kakao}
@@ -774,7 +604,7 @@ function MapView() {
                   aria-label={`${post.category} 게시글`}
                   onClick={(event) => {
                     event.stopPropagation()
-                    setSelectedPostId(post.id)
+                    onSelectPost(post.id)
                   }}
                 >
                   {getPinIconEmoji(post.icon)}
@@ -814,30 +644,7 @@ function MapView() {
             onContextMenu={(event) => event.preventDefault()}
           />
         )}
-
-        <BottomSheet open={sheetOpen} onToggle={setSheetOpen}>
-          <CommunityFeed
-            posts={nearbyPosts}
-            activeCategories={activeCategories}
-            onToggleCategory={toggleCategory}
-            onSelectPost={setSelectedPostId}
-          />
-        </BottomSheet>
       </div>
-
-      {selectedPost && (
-        <PostDetail
-          post={selectedPost}
-          onClose={() => setSelectedPostId(null)}
-          onConfirm={() => handleConfirm(selectedPost)}
-          confirming={confirmingPostId === selectedPost.id}
-          onLike={() => handleLike(selectedPost)}
-          liking={likingPostId === selectedPost.id}
-          isMine={isMyPost(selectedPost.id)}
-          onDelete={() => handleDeletePost(selectedPost)}
-          deleting={deletingPostId === selectedPost.id}
-        />
-      )}
 
       <PlacePreview
         position={previewPosition}
