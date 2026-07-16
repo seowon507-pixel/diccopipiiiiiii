@@ -8,22 +8,38 @@ import {
   incrementLikes,
   uploadPostImage,
   subscribeToPostChanges,
+  getPins,
+  createPin,
+  deletePin,
+  subscribeToPinChanges,
 } from './supabaseClient'
 import {
   CATEGORIES,
   CATEGORY_COLORS,
   DEFAULT_CATEGORY_COLOR,
   CATEGORY_VALID_MINUTES,
+  getPinIconEmoji,
 } from './categories'
 import { getDistanceMeters } from './geo'
 import { findNearbyDuplicate, saveLastPost } from './abuseCheck'
-import { saveOwnership, forgetOwnership, getOwnerSecret, isMyPost, generateOwnerSecret } from './myPosts'
+import {
+  saveOwnership,
+  forgetOwnership,
+  getOwnerSecret,
+  isMyPost,
+  generateOwnerSecret,
+  savePinOwnership,
+  forgetPinOwnership,
+  getPinOwnerSecret,
+} from './myPosts'
 import PostModal from './components/PostModal.jsx'
 import CategoryFilter from './components/CategoryFilter.jsx'
 import PostDetail from './components/PostDetail.jsx'
 import BottomSheet from './components/BottomSheet.jsx'
 import CommunityFeed from './components/CommunityFeed.jsx'
 import PlaceSearch from './components/PlaceSearch.jsx'
+import PinMenu from './components/PinMenu.jsx'
+import PlacePreview from './components/PlacePreview.jsx'
 
 const KAKAO_MAP_KEY = import.meta.env.VITE_KAKAO_MAP_KEY
 
@@ -76,11 +92,26 @@ function getMarkerOpacity(post, referenceTime) {
   return getElapsedRatio(post, referenceTime) >= NEAR_EXPIRY_RATIO ? NEAR_EXPIRY_OPACITY : 1
 }
 
-function createKakaoMarkerImage(kakao, color) {
+// 이모지가 섞인 SVG는 btoa가 바로 처리 못하므로 유니코드 안전하게 base64로 변환한다.
+function svgToDataUrl(svg) {
+  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
+}
+
+function createKakaoMarkerImage(kakao, color, emoji) {
+  const emojiText = emoji
+    ? `<text x="14" y="19" font-size="14" text-anchor="middle">${emoji}</text>`
+    : ''
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">`
-    + `<circle cx="14" cy="14" r="10" fill="${color}" stroke="#fff" stroke-width="2"/></svg>`
-  const src = `data:image/svg+xml;base64,${btoa(svg)}`
-  return new kakao.maps.MarkerImage(src, new kakao.maps.Size(28, 28))
+    + `<circle cx="14" cy="14" r="10" fill="${color}" stroke="#fff" stroke-width="2"/>${emojiText}</svg>`
+  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(28, 28))
+}
+
+// 아직 글이 없는 "빈 핀" 전용 마커 이미지(점선 원 + 📌).
+function createKakaoPinMarkerImage(kakao) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">`
+    + `<circle cx="14" cy="14" r="10" fill="#ffffff" stroke="#999999" stroke-width="2" stroke-dasharray="3,2"/>`
+    + `<text x="14" y="19" font-size="13" text-anchor="middle">📌</text></svg>`
+  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(28, 28))
 }
 
 // 중심 좌표 기준 반경(m)을 위도/경도 델타로 변환해 placeholder 가상 뷰포트 범위를 만든다.
@@ -129,7 +160,7 @@ function placeholderPointToLatLng(container, clientX, clientY, bounds) {
 }
 
 function isMarkerOrInfoWindowTarget(target) {
-  return Boolean(target?.closest?.('.map-marker, .place-search, .category-filter'))
+  return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .category-filter'))
 }
 
 function MapView() {
@@ -138,14 +169,23 @@ function MapView() {
   const kakaoMapRef = useRef(null)
   const myLocationCircleRef = useRef(null)
   const markersRef = useRef([])
+  const pinMarkersRef = useRef([])
   const longPressTimerRef = useRef(null)
   const touchStartRef = useRef({ x: 0, y: 0 })
   const lastTouchTimeRef = useRef(0)
 
   const [posts, setPosts] = useState([])
+  const [pins, setPins] = useState([])
   const [selectedPostId, setSelectedPostId] = useState(null)
+  const [selectedPinId, setSelectedPinId] = useState(null)
+  const [deletingPinId, setDeletingPinId] = useState(null)
+  // 지도를 클릭한 지점(아직 서버에 핀이 만들어지지 않은 상태)의 건물/장소 미리보기
+  const [previewPosition, setPreviewPosition] = useState(null)
+  const [creatingPin, setCreatingPin] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [pendingPosition, setPendingPosition] = useState(null)
+  const [pendingPinId, setPendingPinId] = useState(null)
+  const [quickCategory, setQuickCategory] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [confirmingPostId, setConfirmingPostId] = useState(null)
@@ -179,6 +219,17 @@ function MapView() {
     let cancelled = false
     getPosts().then((data) => {
       if (!cancelled) setPosts(data)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 아직 글이 없는 "빈 핀" 목록도 함께 불러온다.
+  useEffect(() => {
+    let cancelled = false
+    getPins().then((data) => {
+      if (!cancelled) setPins(data)
     })
     return () => {
       cancelled = true
@@ -239,6 +290,20 @@ function MapView() {
     return unsubscribe
   }, [])
 
+  // 다른 사용자가 만들거나 지운 빈 핀을 실시간으로 반영한다.
+  useEffect(() => {
+    const unsubscribe = subscribeToPinChanges({
+      onInsert: (newPin) => {
+        setPins((prev) => (prev.some((pin) => pin.id === newPin.id) ? prev : [newPin, ...prev]))
+      },
+      onDelete: (deletedPin) => {
+        setPins((prev) => prev.filter((pin) => pin.id !== deletedPin.id))
+        setSelectedPinId((prev) => (prev === deletedPin.id ? null : prev))
+      },
+    })
+    return unsubscribe
+  }, [])
+
   // 카테고리 필터가 켜져 있고, 만료되지 않고, 사용자 위치 반경 1km 이내인 게시글만 남긴다.
   const nearbyPosts = useMemo(() => {
     if (!userLocation) return []
@@ -250,6 +315,16 @@ function MapView() {
       return distance <= NEARBY_RADIUS_METERS
     })
   }, [posts, now, userLocation, activeCategories])
+
+  // 빈 핀도 게시글과 동일하게 반경 1km 이내만 지도에 표시한다.
+  const nearbyPins = useMemo(() => {
+    if (!userLocation) return []
+
+    return pins.filter((pin) => {
+      const distance = getDistanceMeters(userLocation.lat, userLocation.lng, pin.lat, pin.lng)
+      return distance <= NEARBY_RADIUS_METERS
+    })
+  }, [pins, userLocation])
 
   // 카카오맵 초기화. 딱 한 번만 생성하고, 이후 위치 갱신은 반경원만 옮긴다.
   useEffect(() => {
@@ -278,10 +353,10 @@ function MapView() {
       })
       myLocationCircleRef.current.setMap(map)
 
-      // 데스크톱(마우스)만 클릭으로 작성 모달을 연다. 모바일은 아래 터치 핸들러의 롱프레스로 처리한다.
+      // 데스크톱(마우스)만 클릭으로 장소 미리보기를 연다. 모바일은 아래 터치 핸들러의 롱프레스로 처리한다.
       if (!isTouchDevice()) {
         kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
-          openCreateModal(mouseEvent.latLng.getLat(), mouseEvent.latLng.getLng())
+          setPreviewPosition({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() })
         })
       }
     })
@@ -308,7 +383,11 @@ function MapView() {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(post.lat, post.lng),
         map: kakaoMapRef.current,
-        image: createKakaoMarkerImage(kakao, CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR),
+        image: createKakaoMarkerImage(
+          kakao,
+          CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
+          getPinIconEmoji(post.icon),
+        ),
         opacity: getMarkerOpacity(post, now),
       })
 
@@ -319,6 +398,27 @@ function MapView() {
       return marker
     })
   }, [nearbyPosts, now])
+
+  // nearbyPins가 바뀔 때마다 빈 핀 마커를 다시 그린다.
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
+    const kakao = window.kakao
+
+    pinMarkersRef.current.forEach((marker) => marker.setMap(null))
+    pinMarkersRef.current = nearbyPins.map((pin) => {
+      const marker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(pin.lat, pin.lng),
+        map: kakaoMapRef.current,
+        image: createKakaoPinMarkerImage(kakao),
+      })
+
+      kakao.maps.event.addListener(marker, 'click', () => {
+        setSelectedPinId(pin.id)
+      })
+
+      return marker
+    })
+  }, [nearbyPins])
 
   // placeholder 컨테이너 크기를 재서 500m 원을 정확한 원형(px)으로 그린다.
   useEffect(() => {
@@ -335,9 +435,12 @@ function MapView() {
   }, [locationLoading])
 
   // 5분 이내 반경 50m 안에 내가 쓴 글이 있으면 새 글 대신 그 글을 수정하도록 연다.
-  function openCreateModal(lat, lng) {
+  // pinId가 있으면 이 작성 흐름이 끝났을 때(성공 시) 그 빈 핀을 지운다. presetCategory는 "질문 등록" 같은 빠른 진입용 기본 카테고리.
+  function openCreateModal(lat, lng, { pinId = null, presetCategory = null } = {}) {
     setSubmitError(null)
     setPendingPosition({ lat, lng })
+    setPendingPinId(pinId)
+    setSelectedPinId(null)
 
     const duplicate = findNearbyDuplicate(lat, lng)
     const existingPost = duplicate ? posts.find((post) => post.id === duplicate.id) : null
@@ -351,9 +454,12 @@ function MapView() {
         title: existingPost.title,
         content: existingPost.content,
         image_url: existingPost.image_url,
+        icon: existingPost.icon,
       })
+      setQuickCategory(null)
     } else {
       setEditTarget(null)
+      setQuickCategory(presetCategory)
     }
 
     setModalOpen(true)
@@ -364,9 +470,27 @@ function MapView() {
     setPendingPosition(null)
     setSubmitError(null)
     setEditTarget(null)
+    setPendingPinId(null)
+    setQuickCategory(null)
   }
 
-  async function handleSubmitPost({ category, title, content, imageFile, removeImage }) {
+  // 핀에서 시작한 작성이 성공적으로 끝나면(글쓰기든 근처 글 수정이든) 원본 빈 핀은 삭제한다.
+  async function convertPinToPost(pinId) {
+    const ownerSecret = getPinOwnerSecret(pinId)
+    if (!ownerSecret) return
+
+    try {
+      const deleted = await deletePin(pinId, ownerSecret)
+      if (deleted) {
+        forgetPinOwnership(pinId)
+        setPins((prev) => prev.filter((pin) => pin.id !== pinId))
+      }
+    } catch (err) {
+      console.error('[MapView] 핀 삭제(전환) 실패', err)
+    }
+  }
+
+  async function handleSubmitPost({ category, title, content, imageFile, removeImage, icon }) {
     if (!pendingPosition) return
 
     setSubmitting(true)
@@ -377,7 +501,7 @@ function MapView() {
         : (removeImage ? null : editTarget?.image_url ?? null)
 
       if (editTarget) {
-        await updatePost(editTarget.id, { category, title, content, imageUrl })
+        await updatePost(editTarget.id, { category, title, content, imageUrl, icon })
         saveLastPost({ id: editTarget.id, lat: editTarget.lat, lng: editTarget.lng })
       } else {
         const distanceFromMe = userLocation
@@ -394,17 +518,68 @@ function MapView() {
           content,
           postType,
           imageUrl,
+          icon,
           ownerSecret,
         })
         saveLastPost({ id: created.id, lat: pendingPosition.lat, lng: pendingPosition.lng })
         saveOwnership(created.id, ownerSecret)
       }
+
+      if (pendingPinId) {
+        await convertPinToPost(pendingPinId)
+      }
+
       closeCreateModal()
     } catch (err) {
       console.error('[MapView] 게시글 저장 실패', err)
       setSubmitError('저장에 실패했습니다. 다시 시도해주세요.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // PlacePreview에서 "이 위치에 핀 만들기"를 눌렀을 때만 실제로 서버에 핀을 만든다.
+  async function handleCreatePinAtPreview() {
+    if (!previewPosition) return
+
+    setCreatingPin(true)
+    try {
+      const ownerSecret = generateOwnerSecret()
+      const created = await createPin({ lat: previewPosition.lat, lng: previewPosition.lng, ownerSecret })
+      setPins((prev) => (prev.some((pin) => pin.id === created.id) ? prev : [created, ...prev]))
+      savePinOwnership(created.id, ownerSecret)
+      setPreviewPosition(null)
+      setSelectedPinId(created.id)
+    } catch (err) {
+      console.error('[MapView] 핀 생성 실패', err)
+    } finally {
+      setCreatingPin(false)
+    }
+  }
+
+  // PlacePreview에서 "커뮤니티 보기"를 누르면 미리보기를 닫고 하단시트를 연다.
+  function handleViewCommunityFromPreview() {
+    setPreviewPosition(null)
+    setSheetOpen(true)
+  }
+
+  // 핀 메뉴에서 "핀 삭제"를 누르면 본인이 만든 핀만(owner_secret 일치) 삭제된다.
+  async function handleDeletePin(pin) {
+    const ownerSecret = getPinOwnerSecret(pin.id)
+    if (!ownerSecret) return
+
+    setDeletingPinId(pin.id)
+    try {
+      const deleted = await deletePin(pin.id, ownerSecret)
+      if (deleted) {
+        forgetPinOwnership(pin.id)
+        setPins((prev) => prev.filter((p) => p.id !== pin.id))
+        setSelectedPinId(null)
+      }
+    } catch (err) {
+      console.error('[MapView] 핀 삭제 실패', err)
+    } finally {
+      setDeletingPinId(null)
     }
   }
 
@@ -464,7 +639,7 @@ function MapView() {
     if (Date.now() - lastTouchTimeRef.current < 700) return
 
     const { lat, lng } = placeholderPointToLatLng(event.currentTarget, event.clientX, event.clientY, bounds)
-    openCreateModal(lat, lng)
+    setPreviewPosition({ lat, lng })
   }
 
   function handlePlaceholderTouchStart(event, bounds) {
@@ -480,7 +655,7 @@ function MapView() {
 
     longPressTimerRef.current = setTimeout(() => {
       const { lat, lng } = placeholderPointToLatLng(container, touchX, touchY, bounds)
-      openCreateModal(lat, lng)
+      setPreviewPosition({ lat, lng })
     }, LONG_PRESS_MS)
   }
 
@@ -502,7 +677,7 @@ function MapView() {
       const rect = container.getBoundingClientRect()
       const point = new kakao.maps.Point(touchX - rect.left, touchY - rect.top)
       const coords = kakaoMapRef.current.getProjection().coordsFromContainerPoint(point)
-      openCreateModal(coords.getLat(), coords.getLng())
+      setPreviewPosition({ lat: coords.getLat(), lng: coords.getLng() })
     }, LONG_PRESS_MS)
   }
 
@@ -535,12 +710,14 @@ function MapView() {
   }
 
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null
+  const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null
 
   const willBeExternal = !editTarget && Boolean(pendingPosition) && Boolean(userLocation)
     && getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng) > EXTERNAL_DISTANCE_METERS
 
   const placeholderBounds = userLocation ? getPlaceholderBounds(userLocation) : null
   const placeholderPositions = placeholderBounds ? projectToPercent(nearbyPosts, placeholderBounds) : new Map()
+  const placeholderPinPositions = placeholderBounds ? projectToPercent(nearbyPins, placeholderBounds) : new Map()
   const myCircleDiameterPx = Math.min(placeholderSize.width, placeholderSize.height)
     * (EXTERNAL_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
 
@@ -599,7 +776,30 @@ function MapView() {
                     event.stopPropagation()
                     setSelectedPostId(post.id)
                   }}
-                />
+                >
+                  {getPinIconEmoji(post.icon)}
+                </button>
+              )
+            })}
+
+            {nearbyPins.map((pin) => {
+              const position = placeholderPinPositions.get(pin.id)
+              if (!position) return null
+
+              return (
+                <button
+                  key={pin.id}
+                  type="button"
+                  className="map-pin"
+                  style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                  aria-label="빈 핀"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setSelectedPinId(pin.id)
+                  }}
+                >
+                  📌
+                </button>
               )
             })}
           </div>
@@ -639,16 +839,36 @@ function MapView() {
         />
       )}
 
+      <PlacePreview
+        position={previewPosition}
+        kakao={window.kakao}
+        onCreatePin={handleCreatePinAtPreview}
+        onViewCommunity={handleViewCommunityFromPreview}
+        onClose={() => setPreviewPosition(null)}
+        creatingPin={creatingPin}
+      />
+
+      {selectedPin && (
+        <PinMenu
+          onWrite={() => openCreateModal(selectedPin.lat, selectedPin.lng, { pinId: selectedPin.id })}
+          onAskQuestion={() => openCreateModal(selectedPin.lat, selectedPin.lng, { pinId: selectedPin.id, presetCategory: '동네질문' })}
+          onDelete={() => handleDeletePin(selectedPin)}
+          onClose={() => setSelectedPinId(null)}
+          deleting={deletingPinId === selectedPin.id}
+        />
+      )}
+
       <PostModal
         open={modalOpen}
         submitting={submitting}
         errorMessage={submitError}
         isEditing={Boolean(editTarget)}
         willBeExternal={willBeExternal}
-        initialCategory={editTarget?.category ?? null}
+        initialCategory={editTarget?.category ?? quickCategory ?? null}
         initialTitle={editTarget?.title ?? ''}
         initialContent={editTarget?.content ?? ''}
         initialImageUrl={editTarget?.image_url ?? null}
+        initialIcon={editTarget?.icon ?? null}
         onSubmit={handleSubmitPost}
         onClose={closeCreateModal}
       />
