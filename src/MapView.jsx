@@ -1,10 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { getPosts, createPost, updatePost, incrementConfirmCount, subscribeToPostChanges } from './supabaseClient'
-import { CATEGORIES, CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, CATEGORY_VALID_MINUTES, DEFAULT_VALID_MINUTES } from './categories'
+import {
+  getPosts,
+  createPost,
+  updatePost,
+  incrementConfirmCount,
+  incrementLikes,
+  subscribeToPostChanges,
+} from './supabaseClient'
+import {
+  CATEGORIES,
+  CATEGORY_COLORS,
+  DEFAULT_CATEGORY_COLOR,
+  CATEGORY_VALID_MINUTES,
+} from './categories'
 import { getDistanceMeters } from './geo'
 import { findNearbyDuplicate, saveLastPost } from './abuseCheck'
 import PostModal from './components/PostModal.jsx'
 import CategoryFilter from './components/CategoryFilter.jsx'
+import PostDetail from './components/PostDetail.jsx'
+import BottomSheet from './components/BottomSheet.jsx'
+import CommunityFeed from './components/CommunityFeed.jsx'
+import PlaceSearch from './components/PlaceSearch.jsx'
 
 const KAKAO_MAP_KEY = import.meta.env.VITE_KAKAO_MAP_KEY
 
@@ -15,6 +31,8 @@ const DEV_LOCATION_OVERRIDE = { lat: 37.5575, lng: 126.9251 }
 const NEARBY_RADIUS_METERS = 1000
 // placeholder 가상 뷰포트는 필터 반경보다 조금 더 넉넉하게 잡는다.
 const PLACEHOLDER_VIEWPORT_RADIUS_METERS = 1300
+// 이 반경 밖에서 쓴 글은 "문의글"로 등록된다.
+const INQUIRY_DISTANCE_METERS = 500
 
 const LONG_PRESS_MS = 500
 const MOVE_CANCEL_PX = 10
@@ -28,37 +46,24 @@ function isTouchDevice() {
 
 function loadKakaoMapScript(appKey) {
   return new Promise((resolve, reject) => {
-    if (window.kakao?.maps) {
+    if (window.kakao?.maps?.services) {
       resolve(window.kakao)
       return
     }
 
     const script = document.createElement('script')
-    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&autoload=false`
+    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&libraries=services&autoload=false`
     script.onload = () => window.kakao.maps.load(() => resolve(window.kakao))
     script.onerror = reject
     document.head.appendChild(script)
   })
 }
 
-function formatPostTime(createdAt) {
-  return new Date(createdAt).toLocaleString('ko-KR', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
-  ))
-}
-
-// 카테고리 유효시간 대비 경과 비율. 1 이상이면 만료된 것으로 본다.
+// 카테고리 유효시간 대비 경과 비율. 자유주제(유효시간 없음)는 항상 0을 반환한다.
 function getElapsedRatio(post, referenceTime) {
-  const validMinutes = CATEGORY_VALID_MINUTES[post.category] ?? DEFAULT_VALID_MINUTES
+  const validMinutes = CATEGORY_VALID_MINUTES[post.category]
+  if (validMinutes == null) return 0
+
   const validMs = validMinutes * 60 * 1000
   const elapsedMs = referenceTime - new Date(post.created_at).getTime()
   return elapsedMs / validMs
@@ -66,6 +71,13 @@ function getElapsedRatio(post, referenceTime) {
 
 function getMarkerOpacity(post, referenceTime) {
   return getElapsedRatio(post, referenceTime) >= NEAR_EXPIRY_RATIO ? NEAR_EXPIRY_OPACITY : 1
+}
+
+function createKakaoMarkerImage(kakao, color) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">`
+    + `<circle cx="14" cy="14" r="10" fill="${color}" stroke="#fff" stroke-width="2"/></svg>`
+  const src = `data:image/svg+xml;base64,${btoa(svg)}`
+  return new kakao.maps.MarkerImage(src, new kakao.maps.Size(28, 28))
 }
 
 // 중심 좌표 기준 반경(m)을 위도/경도 델타로 변환해 placeholder 가상 뷰포트 범위를 만든다.
@@ -81,36 +93,7 @@ function getPlaceholderBounds(center) {
   }
 }
 
-function createKakaoMarkerImage(kakao, color) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">`
-    + `<circle cx="14" cy="14" r="10" fill="${color}" stroke="#fff" stroke-width="2"/></svg>`
-  const src = `data:image/svg+xml;base64,${btoa(svg)}`
-  return new kakao.maps.MarkerImage(src, new kakao.maps.Size(28, 28))
-}
-
-function buildInfoWindowHtml(post) {
-  const isEdited = Boolean(post.updated_at)
-  const timeLabel = formatPostTime(post.updated_at ?? post.created_at)
-  const editedBadge = isEdited
-    ? ' <span style="color:#a6763a;font-size:11px;font-weight:600;">(수정됨)</span>'
-    : ''
-
-  return `
-    <div style="padding:8px 10px;font-size:13px;max-width:200px;line-height:1.4;">
-      <strong>${escapeHtml(post.category)}</strong>
-      <p style="margin:4px 0;">${escapeHtml(post.content)}${editedBadge}</p>
-      <span style="color:#888;font-size:12px;">${timeLabel}</span>
-      <button
-        type="button"
-        data-confirm-button
-        style="display:block;margin-top:6px;width:100%;padding:6px 0;border:none;border-radius:6px;background:#2e7d6b;color:#fff;font-size:12px;cursor:pointer;"
-      >아직 그런가요? (${post.confirm_count})</button>
-    </div>
-  `
-}
-
 // placeholder 모드 전용: lat/lng을 뷰포트 bounds 안에서 컨테이너 상대 좌표(%)로 변환한다.
-// 실제 지도가 아니므로 위치는 근사치이며, 카카오맵 연동 후에는 사용되지 않는다.
 function projectToPercent(posts, bounds) {
   const positions = new Map()
   const { minLat, maxLat, minLng, maxLng } = bounds
@@ -143,14 +126,15 @@ function placeholderPointToLatLng(container, clientX, clientY, bounds) {
 }
 
 function isMarkerOrInfoWindowTarget(target) {
-  return Boolean(target?.closest?.('.map-marker, .map-infowindow'))
+  return Boolean(target?.closest?.('.map-marker, .place-search, .category-filter'))
 }
 
 function MapView() {
   const mapContainerRef = useRef(null)
+  const placeholderRef = useRef(null)
   const kakaoMapRef = useRef(null)
+  const myLocationCircleRef = useRef(null)
   const markersRef = useRef([])
-  const infoWindowRef = useRef(null)
   const longPressTimerRef = useRef(null)
   const touchStartRef = useRef({ x: 0, y: 0 })
   const lastTouchTimeRef = useRef(0)
@@ -162,6 +146,7 @@ function MapView() {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [confirmingPostId, setConfirmingPostId] = useState(null)
+  const [likingPostId, setLikingPostId] = useState(null)
   const [now, setNow] = useState(() => Date.now())
   // null이면 새 글 작성, 값이 있으면 해당 게시글 수정 모드
   const [editTarget, setEditTarget] = useState(null)
@@ -169,6 +154,10 @@ function MapView() {
   const [userLocation, setUserLocation] = useState(null)
   const [locationLoading, setLocationLoading] = useState(true)
   const [locationDenied, setLocationDenied] = useState(false)
+
+  const [kakaoReady, setKakaoReady] = useState(false)
+  const [placeholderSize, setPlaceholderSize] = useState({ width: 0, height: 0 })
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   // 기본은 전체 카테고리 켜짐
   const [activeCategories, setActiveCategories] = useState(() => new Set(CATEGORIES))
@@ -192,9 +181,8 @@ function MapView() {
     }
   }, [])
 
-  // 사용자 위치를 한 번 조회해서 지도 중심으로 쓴다. 실패/거부 시 서울시청으로 대체한다.
+  // 사용자 위치를 실시간으로 추적해서 지도 중심/반경원에 반영한다. 실패/거부 시 서울시청으로 대체한다.
   useEffect(() => {
-    // 개발 모드에서는 실제 기기 위치와 무관하게 시드 데이터 동네를 강제로 사용한다 (프로덕션 빌드에는 영향 없음).
     if (import.meta.env.DEV) {
       setUserLocation(DEV_LOCATION_OVERRIDE)
       setLocationLoading(false)
@@ -208,7 +196,7 @@ function MapView() {
       return
     }
 
-    navigator.geolocation.getCurrentPosition(
+    const watchId = navigator.geolocation.watchPosition(
       (position) => {
         setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude })
         setLocationLoading(false)
@@ -220,6 +208,8 @@ function MapView() {
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
     )
+
+    return () => navigator.geolocation.clearWatch(watchId)
   }, [])
 
   // 유효시간 경과율(반투명/만료)을 주기적으로 재계산하기 위한 시계
@@ -253,21 +243,32 @@ function MapView() {
     })
   }, [posts, now, userLocation, activeCategories])
 
-  // 카카오맵 초기화. 키가 없거나(placeholder 상태) 위치가 아직 없으면 실행하지 않는다.
+  // 카카오맵 초기화. 딱 한 번만 생성하고, 이후 위치 갱신은 반경원만 옮긴다.
   useEffect(() => {
-    if (!KAKAO_MAP_KEY || !mapContainerRef.current || !userLocation) return
+    if (!KAKAO_MAP_KEY || !mapContainerRef.current || !userLocation || kakaoMapRef.current) return
 
     let cancelled = false
 
     loadKakaoMapScript(KAKAO_MAP_KEY).then((kakao) => {
-      if (cancelled) return
+      if (cancelled || kakaoMapRef.current) return
 
       const map = new kakao.maps.Map(mapContainerRef.current, {
         center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
         level: 4,
       })
       kakaoMapRef.current = map
-      infoWindowRef.current = new kakao.maps.InfoWindow({ removable: true })
+      setKakaoReady(true)
+
+      myLocationCircleRef.current = new kakao.maps.Circle({
+        center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+        radius: INQUIRY_DISTANCE_METERS,
+        strokeWeight: 1.5,
+        strokeColor: '#2e7d6b',
+        strokeOpacity: 0.6,
+        fillColor: '#2e7d6b',
+        fillOpacity: 0.08,
+      })
+      myLocationCircleRef.current.setMap(map)
 
       // 데스크톱(마우스)만 클릭으로 작성 모달을 연다. 모바일은 아래 터치 핸들러의 롱프레스로 처리한다.
       if (!isTouchDevice()) {
@@ -280,6 +281,13 @@ function MapView() {
     return () => {
       cancelled = true
     }
+  }, [userLocation])
+
+  // 위치가 갱신될 때마다 반경원 위치만 옮긴다(지도는 다시 만들지 않음) — 내 위치 실시간 동기화
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !userLocation || !myLocationCircleRef.current) return
+    const kakao = window.kakao
+    myLocationCircleRef.current.setPosition(new kakao.maps.LatLng(userLocation.lat, userLocation.lng))
   }, [userLocation])
 
   // nearbyPosts가 바뀔 때마다 카카오맵 마커를 다시 그린다.
@@ -297,26 +305,26 @@ function MapView() {
       })
 
       kakao.maps.event.addListener(marker, 'click', () => {
-        infoWindowRef.current.setContent(buildInfoWindowHtml(post))
-        infoWindowRef.current.open(kakaoMapRef.current, marker)
-
-        // kakao InfoWindow는 순수 HTML이라 React 이벤트가 닿지 않는다. DOM에서 버튼을 직접 찾아 붙인다.
-        requestAnimationFrame(() => {
-          const button = document.querySelector('[data-confirm-button]')
-          if (!button) return
-          button.onclick = () => {
-            button.disabled = true
-            button.textContent = '확인 중...'
-            handleConfirm(post).finally(() => {
-              if (button.isConnected) button.textContent = '확인했어요'
-            })
-          }
-        })
+        setSelectedPostId(post.id)
       })
 
       return marker
     })
   }, [nearbyPosts, now])
+
+  // placeholder 컨테이너 크기를 재서 500m 원을 정확한 원형(px)으로 그린다.
+  useEffect(() => {
+    if (KAKAO_MAP_KEY) return
+    const el = placeholderRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) setPlaceholderSize({ width: entry.contentRect.width, height: entry.contentRect.height })
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [locationLoading])
 
   // 5분 이내 반경 50m 안에 내가 쓴 글이 있으면 새 글 대신 그 글을 수정하도록 연다.
   function openCreateModal(lat, lng) {
@@ -332,6 +340,7 @@ function MapView() {
         lat: existingPost.lat,
         lng: existingPost.lng,
         category: existingPost.category,
+        title: existingPost.title,
         content: existingPost.content,
       })
     } else {
@@ -348,17 +357,29 @@ function MapView() {
     setEditTarget(null)
   }
 
-  async function handleSubmitPost({ category, content }) {
+  async function handleSubmitPost({ category, title, content }) {
     if (!pendingPosition) return
 
     setSubmitting(true)
     setSubmitError(null)
     try {
       if (editTarget) {
-        await updatePost(editTarget.id, { category, content })
+        await updatePost(editTarget.id, { category, title, content })
         saveLastPost({ id: editTarget.id, lat: editTarget.lat, lng: editTarget.lng })
       } else {
-        const created = await createPost({ lat: pendingPosition.lat, lng: pendingPosition.lng, category, content })
+        const distanceFromMe = userLocation
+          ? getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng)
+          : 0
+        const postType = distanceFromMe > INQUIRY_DISTANCE_METERS ? 'inquiry' : 'local'
+
+        const created = await createPost({
+          lat: pendingPosition.lat,
+          lng: pendingPosition.lng,
+          category,
+          title,
+          content,
+          postType,
+        })
         saveLastPost({ id: created.id, lat: pendingPosition.lat, lng: pendingPosition.lng })
       }
       closeCreateModal()
@@ -381,6 +402,20 @@ function MapView() {
       console.error('[MapView] confirm_count 갱신 실패', err)
     } finally {
       setConfirmingPostId(null)
+    }
+  }
+
+  // 추천(좋아요) 시 likes_count를 1 증가시킨다.
+  async function handleLike(post) {
+    if (likingPostId === post.id) return
+
+    setLikingPostId(post.id)
+    try {
+      await incrementLikes(post.id, post.likes_count ?? 0)
+    } catch (err) {
+      console.error('[MapView] likes_count 갱신 실패', err)
+    } finally {
+      setLikingPostId(null)
     }
   }
 
@@ -416,6 +451,7 @@ function MapView() {
 
   function handleKakaoTouchStart(event) {
     if (!kakaoMapRef.current) return
+    if (isMarkerOrInfoWindowTarget(event.target)) return
 
     const touch = event.touches[0]
     const touchX = touch.clientX
@@ -461,24 +497,31 @@ function MapView() {
     )
   }
 
-  // 카카오맵 키가 .env에 채워지기 전까지는 placeholder 위에 마커/인포윈도우/작성 흐름을 흉내낸다.
-  if (!KAKAO_MAP_KEY) {
-    const bounds = getPlaceholderBounds(userLocation)
-    const positions = projectToPercent(nearbyPosts, bounds)
-    const selectedPost = nearbyPosts.find((post) => post.id === selectedPostId)
-    const selectedPosition = selectedPostId ? positions.get(selectedPostId) : null
+  const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null
 
-    return (
-      <>
-        {locationBanner}
-        <div className="map-view">
-          <CategoryFilter activeCategories={activeCategories} onToggle={toggleCategory} />
+  const willBeInquiry = !editTarget && Boolean(pendingPosition) && Boolean(userLocation)
+    && getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng) > INQUIRY_DISTANCE_METERS
+
+  const placeholderBounds = userLocation ? getPlaceholderBounds(userLocation) : null
+  const placeholderPositions = placeholderBounds ? projectToPercent(nearbyPosts, placeholderBounds) : new Map()
+  const myCircleDiameterPx = Math.min(placeholderSize.width, placeholderSize.height)
+    * (INQUIRY_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
+
+  return (
+    <>
+      {locationBanner}
+      <div className="map-view">
+        <CategoryFilter activeCategories={activeCategories} onToggle={toggleCategory} />
+        {kakaoReady && <PlaceSearch kakao={window.kakao} kakaoMap={kakaoMapRef.current} />}
+
+        {!KAKAO_MAP_KEY ? (
           <div
+            ref={placeholderRef}
             className="map-placeholder"
             role="img"
             aria-label="지도 영역 placeholder"
-            onClick={(event) => handlePlaceholderClick(event, bounds)}
-            onTouchStart={(event) => handlePlaceholderTouchStart(event, bounds)}
+            onClick={(event) => handlePlaceholderClick(event, placeholderBounds)}
+            onTouchStart={(event) => handlePlaceholderTouchStart(event, placeholderBounds)}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
             onTouchCancel={handleTouchEnd}
@@ -486,8 +529,15 @@ function MapView() {
           >
             <span className="map-placeholder-label">지도 영역</span>
 
+            {myCircleDiameterPx > 0 && (
+              <div
+                className="my-location-circle"
+                style={{ width: myCircleDiameterPx, height: myCircleDiameterPx }}
+              />
+            )}
+
             {nearbyPosts.map((post) => {
-              const position = positions.get(post.id)
+              const position = placeholderPositions.get(post.id)
               if (!position) return null
 
               return (
@@ -509,86 +559,52 @@ function MapView() {
                 />
               )
             })}
-
-            {selectedPost && selectedPosition && (
-              <div
-                className="map-infowindow"
-                style={{ left: `${selectedPosition.x}%`, top: `${selectedPosition.y}%` }}
-                onClick={(event) => event.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  className="map-infowindow-close"
-                  aria-label="닫기"
-                  onClick={() => setSelectedPostId(null)}
-                >
-                  ×
-                </button>
-                <p
-                  className="map-infowindow-category"
-                  style={{ color: CATEGORY_COLORS[selectedPost.category] ?? DEFAULT_CATEGORY_COLOR }}
-                >
-                  {selectedPost.category}
-                </p>
-                <p className="map-infowindow-content">
-                  {selectedPost.content}
-                  {selectedPost.updated_at && <span className="map-infowindow-edited-badge"> (수정됨)</span>}
-                </p>
-                <p className="map-infowindow-time">
-                  {formatPostTime(selectedPost.updated_at ?? selectedPost.created_at)}
-                </p>
-                <button
-                  type="button"
-                  className="map-infowindow-confirm"
-                  disabled={confirmingPostId === selectedPost.id}
-                  onClick={() => handleConfirm(selectedPost)}
-                >
-                  {confirmingPostId === selectedPost.id ? '확인 중...' : `아직 그런가요? (${selectedPost.confirm_count})`}
-                </button>
-              </div>
-            )}
           </div>
-
-          <PostModal
-            open={modalOpen}
-            submitting={submitting}
-            errorMessage={submitError}
-            isEditing={Boolean(editTarget)}
-            initialCategory={editTarget?.category ?? null}
-            initialContent={editTarget?.content ?? ''}
-            onSubmit={handleSubmitPost}
-            onClose={closeCreateModal}
+        ) : (
+          <div
+            ref={mapContainerRef}
+            className="map-container"
+            onTouchStart={handleKakaoTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
+            onContextMenu={(event) => event.preventDefault()}
           />
-        </div>
-      </>
-    )
-  }
+        )}
 
-  return (
-    <>
-      {locationBanner}
-      <div className="map-view">
-        <CategoryFilter activeCategories={activeCategories} onToggle={toggleCategory} />
-        <div
-          ref={mapContainerRef}
-          className="map-container"
-          onTouchStart={handleKakaoTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onTouchCancel={handleTouchEnd}
-          onContextMenu={(event) => event.preventDefault()}
-        />
-        <PostModal
-          open={modalOpen}
-          submitting={submitting}
-          errorMessage={submitError}
-          isEditing={Boolean(editTarget)}
-          initialCategory={editTarget?.category ?? null}
-          initialContent={editTarget?.content ?? ''}
-          onSubmit={handleSubmitPost}
-          onClose={closeCreateModal}
-        />
+        <BottomSheet open={sheetOpen} onToggle={setSheetOpen}>
+          <CommunityFeed
+            posts={nearbyPosts}
+            activeCategories={activeCategories}
+            onToggleCategory={toggleCategory}
+            onSelectPost={setSelectedPostId}
+          />
+        </BottomSheet>
       </div>
+
+      {selectedPost && (
+        <PostDetail
+          post={selectedPost}
+          onClose={() => setSelectedPostId(null)}
+          onConfirm={() => handleConfirm(selectedPost)}
+          confirming={confirmingPostId === selectedPost.id}
+          onLike={() => handleLike(selectedPost)}
+          liking={likingPostId === selectedPost.id}
+        />
+      )}
+
+      <PostModal
+        open={modalOpen}
+        submitting={submitting}
+        errorMessage={submitError}
+        isEditing={Boolean(editTarget)}
+        willBeInquiry={willBeInquiry}
+        initialCategory={editTarget?.category ?? null}
+        initialTitle={editTarget?.title ?? ''}
+        initialContent={editTarget?.content ?? ''}
+        onSubmit={handleSubmitPost}
+        onClose={closeCreateModal}
+      />
     </>
   )
 }
