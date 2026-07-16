@@ -18,18 +18,23 @@
 ## 파일 구조 (이 구조를 벗어나지 말 것)
 ```
 src/
-  MapView.jsx          지도 렌더링 전담, 카카오맵 SDK/위치추적/바텀시트 조립
+  App.jsx              지도/커뮤니티/채팅 탭 전환 + 공유 상태(위치, 게시글) 소유 + PostDetail 오버레이
+  MapView.jsx          지도 렌더링 전담(카카오맵 SDK, 핀, 장소 미리보기). posts/위치는 App에서 props로 받음
+  useUserLocation.js    위치 추적 훅 (App에서 한 번만 구독, 탭들이 공유)
+  usePosts.js           게시글 목록/실시간구독/카테고리필터 훅 (App에서 한 번만 구독, 탭들이 공유)
   supabaseClient.js     Supabase 연결 및 CRUD 함수, 다른 곳에서 직접 fetch 금지
-  categories.js         카테고리 목록/색상/유효시간 정의 (실시간형 vs 자유주제형)
+  categories.js         카테고리 목록/색상/유효시간/경과율 계산(getElapsedRatio) 정의
   geo.js                하버사인 거리 계산 (공용, 중복 생성 금지)
   abuseCheck.js         중복 게시글 방지 로직
-  myPosts.js            내가 쓴 글의 owner_secret을 localStorage에 보관 (삭제 권한 확인용)
+  myPosts.js            내가 쓴 글/핀의 owner_secret을 localStorage에 보관 (삭제 권한 확인용)
   components/
-    PostModal.jsx        게시글 작성/수정 모달 (제목+카테고리+내용)
+    TabBar.jsx             하단 탭바 (지도/커뮤니티/채팅 전환)
+    CommunityPage.jsx      지도와 분리된 전체화면 커뮤니티 탭 (CommunityFeed를 감쌈)
+    ChatRoom.jsx           내 위치 1km 이내 동네 전체 공용 실시간 채팅방
+    PostModal.jsx        게시글 작성/수정 모달 (제목+카테고리+내용+사진+아이콘)
     CategoryFilter.jsx    지도 위 카테고리 필터 칩
-    PostDetail.jsx        마커/카드 클릭 시 상세 + 댓글 + 확인/추천 버튼
-    BottomSheet.jsx       하단에서 올라오는 커뮤니티 시트 (탭/드래그로 열고 닫음)
-    CommunityFeed.jsx     시트 안 검색/필터/정렬 + 게시글 목록
+    PostDetail.jsx        마커/카드 클릭 시 상세 + 댓글 + 확인/추천/삭제 버튼
+    CommunityFeed.jsx     검색/필터/정렬 + 게시글 목록 (CommunityPage 안에서 사용)
     PostCard.jsx          피드의 게시글 카드 1개
     PlaceSearch.jsx        카카오맵 전용 장소/건물 검색 (kakao.maps.services)
     PinMenu.jsx            빈 핀 클릭 시 글쓰기/질문 등록/핀 삭제 메뉴
@@ -40,6 +45,7 @@ dummy-data.json          Supabase 연결 실패 시 fallback 데이터
 ```
 새 기능 추가 시 이 구조 안에서 배치할 위치를 먼저 판단하고,
 애매하면 새 파일을 만들기보다 기존 파일에 함수를 추가하는 쪽을 우선한다.
+BottomSheet.jsx는 14번 단계에서 탭 구조로 바뀌며 제거되었다 — 다시 만들지 말 것.
 
 ## 데이터 모델 — 매번 다시 묻지 말 것
 
@@ -112,6 +118,19 @@ RLS 활성화 + 누구나 select 가능(다른 사용자 실시간 동기화용)
 
 RLS는 켜져 있지만 정책이 없어 anon/authenticated는 절대 직접 접근 못 한다.
 
+### chat_messages 테이블 (동네 전체 공용 실시간 채팅, 게시글 댓글과 별개)
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| id | uuid | pk, default gen_random_uuid() |
+| lat, lng | float8 | 발신자가 메시지를 보낼 당시의 위치 |
+| content | text | 메시지 내용 |
+| created_at | timestamptz | default now() |
+
+RLS 활성화 + 누구나 select/insert 가능(익명 참여). UPDATE/DELETE 정책은 없음(관리자가
+지워야 할 땐 Supabase MCP execute_sql로 직접). realtime publication에 추가되어 있다.
+"동네" 범위는 별도 지역 테이블 없이 posts/pins와 동일하게 클라이언트에서 내 위치 기준
+1km 반경으로 필터링한다(ChatRoom.jsx).
+
 ### Storage 'post-images' 버킷
 public 버킷. 누구나 업로드/읽기 가능(post_images_public_read / post_images_anyone_upload
 정책). supabaseClient.js의 uploadPostImage(file)로 업로드 후 공개 URL을 posts.image_url에
@@ -138,10 +157,6 @@ VITE_SUPABASE_ANON_KEY
   안내하지 말고 MCP로 직접 실행한다.
 - 커밋은 기능 단위로 나눠서 하고, 메시지는 한국어로 `feat:`, `fix:`,
   `chore:` 접두사를 사용한다.
-- 사용자가 "지금 요청한 것만 끝내고 다음 지시 전까지 하지 마"라고 하면,
-  그 요청을 완료한 뒤 배포/추가 작업 등 다음 단계로 자동으로 넘어가지 않고
-  반드시 사용자의 다음 지시를 기다린다 (매 기능 라운드마다 자동으로
-  GitHub push → Vercel 배포까지 이어가지 말 것).
 
 ## 디자인 원칙
 모노톤 베이스 + 포인트 컬러 1개. 네온/그라데이션/과한 장식 금지.
@@ -167,12 +182,13 @@ VITE_SUPABASE_ANON_KEY
    활성화가 별도로 필요하다는 점도 기억해둘 것 (둘 다 안 하면 도메인
    불일치/서비스 비활성 에러가 남). 완료됨 (프로덕션 도메인 등록 + 서비스
    활성화 확인함).
-10. 커뮤니티 기능 확장 — 완료 여부는 src/components/BottomSheet.jsx,
-    CommunityFeed.jsx, PostDetail.jsx 존재로 확인. 포함된 것:
-    - 위치 실시간 동기화(watchPosition, MapView.jsx)
+10. 커뮤니티 기능 확장 — 완료 여부는 src/components/CommunityFeed.jsx,
+    PostDetail.jsx 존재로 확인. 포함된 것:
+    - 위치 실시간 동기화(watchPosition, 지금은 useUserLocation.js)
     - 내 위치 기준 500m 반경 원 표시(카카오 Circle / placeholder는 CSS 원)
     - 500m 이내/밖 글쓰기 자동 구분(local/inquiry, post_type 컬럼)
-    - 하단 바텀시트로 커뮤니티 피드 열고 닫기(BottomSheet.jsx, 탭+드래그)
+    - 커뮤니티 피드 열람(원래는 하단 바텀시트였으나 14번 단계에서 별도
+      탭으로 바뀜 — BottomSheet.jsx는 삭제됨)
     - 카카오 Places 키워드 장소 검색(PlaceSearch.jsx, kakao 모드 전용,
       placeholder 모드에서는 렌더링 안 됨 — 실제 지오코딩 대안 없음)
     - 피드 검색(제목/내용 텍스트 매칭, 클라이언트 사이드)/카테고리 필터/
@@ -230,7 +246,7 @@ VITE_SUPABASE_ANON_KEY
     src/components/PlacePreview.jsx 존재로 확인.
     - 지도 클릭/롱프레스는 더 이상 곧바로 핀을 만들지 않는다. 먼저
       PlacePreview.jsx 미리보기가 뜨고(카카오 Geocoder.coord2Address로
-      건물명/주소, categorySearchByRadius('AT4')로 근처 관광명소/공원류
+      건물명/주소, categorySearch('AT4')로 근처 관광명소/공원류
       이름을 함께 조회), 그 안의 "📌 이 위치에 핀 만들기" 버튼을 눌러야
       비로소 pins 테이블에 실제로 핀이 생성된다. 핀 시스템(12번)과는
       의도적으로 분리된 별개 단계다 — 정보만 보고 취소해도 서버에는
@@ -238,12 +254,36 @@ VITE_SUPABASE_ANON_KEY
     - 핀 생성이 성공하면 미리보기는 닫히고 그 핀이 바로 선택되어
       PinMenu(글쓰기/질문 등록/핀 삭제)로 이어진다.
     - PlacePreview에는 "🏘 커뮤니티 보기" 버튼도 있다. 이건 클릭한 위치
-      기준으로 새로 필터링하는 게 아니라 기존 하단시트(내 위치 1km 이내
-      CommunityFeed)를 그대로 여는 것뿐이다 — 위치별 반경 필터는 아직
-      없다.
+      기준으로 새로 필터링하는 게 아니라 커뮤니티 탭(내 위치 1km 이내
+      CommunityFeed)으로 전환하는 것뿐이다 — 위치별 반경 필터는 아직 없다.
+      (14번 단계에서 바텀시트가 탭으로 바뀌면서 "하단시트 열기"에서
+      "커뮤니티 탭으로 전환"으로 동작이 바뀌었다.)
     - placeholder 모드(카카오 키 없음)에서는 kakao.maps.services가 없어
       건물명/주소 조회를 못 하므로 "이 위치의 주소 정보를 찾을 수
       없어요"로 표시되지만, 핀 만들기/커뮤니티 보기 버튼은 그대로 동작한다.
+    - 카카오맵 JS SDK의 실제 장소 카테고리 검색 메서드는 categorySearch다
+      (categorySearchByRadius는 존재하지 않는 이름 — REST API 경로명과
+      혼동해 잘못 호출하면 클릭할 때마다 앱이 크래시난다. 다시 틀리지 말 것).
+14. 지도/커뮤니티/채팅 탭 분리 + 동네 실시간 채팅 — 완료 여부는
+    src/App.jsx가 useState로 activeTab을 관리하는지, src/components/TabBar.jsx·
+    ChatRoom.jsx 존재로 확인.
+    - 커뮤니티(게시글 목록)는 더 이상 지도 위에 겹치는 바텀시트가 아니라
+      완전히 분리된 탭/화면이다(하단 TabBar로 지도⇄커뮤니티⇄채팅 전환).
+      BottomSheet.jsx는 삭제됨 — 다시 만들지 말 것.
+    - 위치(useUserLocation.js)와 게시글 목록/실시간구독/카테고리필터
+      (usePosts.js)는 App.jsx가 한 번만 구독해서 세 탭이 공유한다.
+      MapView.jsx는 이제 이 값들을 props로만 받고, 자체적으로 posts를
+      fetch/구독하지 않는다(핀은 예외 — 핀은 지도 전용 개념이라 여전히
+      MapView.jsx 안에서 자체 관리). getElapsedRatio는 categories.js로
+      옮겨서 MapView와 usePosts가 공유한다(중복 정의 금지).
+    - 게시글 상세(PostDetail), 확인/추천/삭제 핸들러도 App.jsx로 옮겨서
+      지도 탭이든 커뮤니티 탭이든 어디서 글을 선택해도 같은 오버레이가
+      뜨게 했다.
+    - 새 chat_messages 테이블 기반 "동네 채팅"은 특정 게시글에 딸린
+      기존 댓글(comments 테이블)과 완전히 별개다 — 동네 전체가 함께
+      보는 하나의 실시간 공용 채팅방이며, 내 위치 1km 이내 메시지만
+      필터링해서 보여준다(반경 개념은 posts/pins와 동일). 채팅 메시지는
+      수정/삭제 기능이 없다(요청받지 않음, 필요해지면 그때 추가).
 
 새 요청을 받으면 위 단계 중 어디까지 되어 있는지 코드를 먼저 확인하고,
 이미 된 부분은 건드리지 않고 다음 단계부터 이어서 작업한다.
