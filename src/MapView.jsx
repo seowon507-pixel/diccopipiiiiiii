@@ -1,0 +1,720 @@
+import { useEffect, useRef, useState } from 'react'
+import {
+  getPins,
+  createPin,
+  deletePin,
+  subscribeToPinChanges,
+} from './supabaseClient'
+import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, getElapsedRatio, getPinIconEmoji } from './categories'
+import { getDistanceMeters } from './geo'
+import { filterPostsWithinRadius, COMMUNITY_RADIUS_METERS, EXTERNAL_DISTANCE_METERS } from './usePosts'
+import {
+  generateOwnerSecret,
+  savePinOwnership,
+  forgetPinOwnership,
+  getPinOwnerSecret,
+} from './myPosts'
+import CategoryFilter from './components/CategoryFilter.jsx'
+import PlaceSearch from './components/PlaceSearch.jsx'
+import PinMenu from './components/PinMenu.jsx'
+import PlacePreview from './components/PlacePreview.jsx'
+import PlaceCard from './components/PlaceCard.jsx'
+import CommunityFeed from './components/CommunityFeed.jsx'
+import MapSheet from './components/MapSheet.jsx'
+
+const KAKAO_MAP_KEY = import.meta.env.VITE_KAKAO_MAP_KEY
+
+// placeholder 가상 뷰포트는 필터 반경보다 조금 더 넉넉하게 잡는다.
+const PLACEHOLDER_VIEWPORT_RADIUS_METERS = 1300
+
+const LONG_PRESS_MS = 500
+const MOVE_CANCEL_PX = 10
+const NEAR_EXPIRY_RATIO = 0.7
+const NEAR_EXPIRY_OPACITY = 0.45
+
+function isTouchDevice() {
+  return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
+}
+
+function loadKakaoMapScript(appKey) {
+  return new Promise((resolve, reject) => {
+    if (window.kakao?.maps?.services) {
+      resolve(window.kakao)
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&libraries=services&autoload=false`
+    script.onload = () => window.kakao.maps.load(() => resolve(window.kakao))
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
+function getMarkerOpacity(post, referenceTime) {
+  return getElapsedRatio(post, referenceTime) >= NEAR_EXPIRY_RATIO ? NEAR_EXPIRY_OPACITY : 1
+}
+
+// 이모지가 섞인 SVG는 btoa가 바로 처리 못하므로 유니코드 안전하게 base64로 변환한다.
+function svgToDataUrl(svg) {
+  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
+}
+
+function createKakaoMarkerImage(kakao, color, emoji) {
+  const emojiText = emoji
+    ? `<text x="18" y="24" font-size="17" text-anchor="middle">${emoji}</text>`
+    : ''
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">`
+    + `<circle cx="18" cy="18" r="14" fill="${color}" stroke="#fff" stroke-width="2"/>${emojiText}</svg>`
+  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(36, 36))
+}
+
+// 아직 글이 없는 "빈 핀" 전용 마커 이미지(점선 원 + 📌).
+function createKakaoPinMarkerImage(kakao) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">`
+    + `<circle cx="18" cy="18" r="14" fill="#ffffff" stroke="#999999" stroke-width="2" stroke-dasharray="4,3"/>`
+    + `<text x="18" y="24" font-size="16" text-anchor="middle">📌</text></svg>`
+  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(36, 36))
+}
+
+// 실시간 내 위치를 나타내는 작은 점 마커(카카오맵 전용). post/pin 마커와 구분되는 채움원.
+function createKakaoMyLocationMarkerImage(kakao) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18">`
+    + `<circle cx="9" cy="9" r="7" fill="#2e7d6b" stroke="#fff" stroke-width="3"/></svg>`
+  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(18, 18))
+}
+
+// 장소검색 결과 위치를 나타내는 전용 마커(핀/글쓰기 시스템과 무관, 위치 표시 전용).
+// 다른 마커보다 크게 그려서 눈에 띄게 하고, 클릭해야만 정보 카드가 뜬다.
+// 물방울(핀 드롭) 모양 — 뾰족한 끝이 실제 좌표를 가리킨다.
+function createKakaoSearchMarkerImage(kakao) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="52" height="68">`
+    + `<path d="M26 65 C26 65 8 41 8 26 A18 18 0 1 1 44 26 C44 41 26 65 26 65 Z" fill="#2e7d6b" stroke="#fff" stroke-width="3"/>`
+    + `<text x="26" y="32" font-size="20" text-anchor="middle">🏢</text></svg>`
+  return new kakao.maps.MarkerImage(
+    svgToDataUrl(svg),
+    new kakao.maps.Size(52, 68),
+    { offset: new kakao.maps.Point(26, 65) },
+  )
+}
+
+// 중심 좌표 기준 반경(m)을 위도/경도 델타로 변환해 placeholder 가상 뷰포트 범위를 만든다.
+function getPlaceholderBounds(center) {
+  const latDelta = PLACEHOLDER_VIEWPORT_RADIUS_METERS / 111320
+  const lngDelta = PLACEHOLDER_VIEWPORT_RADIUS_METERS / (111320 * Math.cos((center.lat * Math.PI) / 180))
+
+  return {
+    minLat: center.lat - latDelta,
+    maxLat: center.lat + latDelta,
+    minLng: center.lng - lngDelta,
+    maxLng: center.lng + lngDelta,
+  }
+}
+
+// placeholder 모드 전용: lat/lng을 뷰포트 bounds 안에서 컨테이너 상대 좌표(%)로 변환한다.
+function projectToPercent(posts, bounds) {
+  const positions = new Map()
+  const { minLat, maxLat, minLng, maxLng } = bounds
+  const latSpan = maxLat - minLat
+  const lngSpan = maxLng - minLng
+
+  posts.forEach((post) => {
+    const xRatio = (post.lng - minLng) / lngSpan
+    const yRatio = (post.lat - minLat) / latSpan
+    positions.set(post.id, {
+      x: xRatio * 100,
+      y: (1 - yRatio) * 100,
+    })
+  })
+
+  return positions
+}
+
+// placeholder 컨테이너 안의 클릭 좌표(px)를 bounds 기준 lat/lng으로 역변환한다.
+function placeholderPointToLatLng(container, clientX, clientY, bounds) {
+  const rect = container.getBoundingClientRect()
+  const xRatio = (clientX - rect.left) / rect.width
+  const yRatio = (clientY - rect.top) / rect.height
+  const { minLat, maxLat, minLng, maxLng } = bounds
+
+  return {
+    lat: maxLat - yRatio * (maxLat - minLat),
+    lng: minLng + xRatio * (maxLng - minLng),
+  }
+}
+
+function isMarkerOrInfoWindowTarget(target) {
+  return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .category-filter'))
+}
+
+// 지도 렌더링 전담. 게시글 목록/위치/카테고리 필터는 App에서 props로 받아 커뮤니티 탭과 공유한다.
+function MapView({
+  userLocation,
+  locationLoading,
+  locationDenied,
+  nearbyPosts,
+  activePosts,
+  activeCategories,
+  onToggleCategory,
+  onSelectPost,
+  onOpenCommunity,
+  onOpenCreateModal,
+}) {
+  const mapContainerRef = useRef(null)
+  const placeholderRef = useRef(null)
+  const kakaoMapRef = useRef(null)
+  const myLocationCircleRef = useRef(null)
+  const myLocationMarkerRef = useRef(null)
+  const searchMarkerRef = useRef(null)
+  const markersRef = useRef([])
+  const pinMarkersRef = useRef([])
+  const longPressTimerRef = useRef(null)
+  const touchStartRef = useRef({ x: 0, y: 0 })
+  const lastTouchTimeRef = useRef(0)
+
+  const [pins, setPins] = useState([])
+  const [selectedPinId, setSelectedPinId] = useState(null)
+  const [deletingPinId, setDeletingPinId] = useState(null)
+  // 지도를 클릭한 지점(아직 서버에 핀이 만들어지지 않은 상태)의 건물/장소 미리보기
+  const [previewPosition, setPreviewPosition] = useState(null)
+  // 장소검색으로 선택한 위치(핀/글쓰기와 무관, 위치 표시 전용) — 마커만 먼저 뜨고, 마커를 눌러야 정보 카드가 열린다.
+  const [searchedPlace, setSearchedPlace] = useState(null)
+  const [placeCardOpen, setPlaceCardOpen] = useState(false)
+  const [placeCommunityOpen, setPlaceCommunityOpen] = useState(false)
+  const [creatingPin, setCreatingPin] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+
+  const [kakaoReady, setKakaoReady] = useState(false)
+  const [placeholderSize, setPlaceholderSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30 * 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // 아직 글이 없는 "빈 핀" 목록도 함께 불러온다.
+  useEffect(() => {
+    let cancelled = false
+    getPins().then((data) => {
+      if (!cancelled) setPins(data)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 다른 사용자가 만들거나 지운 빈 핀을 실시간으로 반영한다.
+  useEffect(() => {
+    const unsubscribe = subscribeToPinChanges({
+      onInsert: (newPin) => {
+        setPins((prev) => (prev.some((pin) => pin.id === newPin.id) ? prev : [newPin, ...prev]))
+      },
+      onDelete: (deletedPin) => {
+        setPins((prev) => prev.filter((pin) => pin.id !== deletedPin.id))
+        setSelectedPinId((prev) => (prev === deletedPin.id ? null : prev))
+      },
+    })
+    return unsubscribe
+  }, [])
+
+  // 빈 핀도 게시글과 동일하게 반경 1km 이내만 지도에 표시한다.
+  const nearbyPins = userLocation
+    ? pins.filter((pin) => getDistanceMeters(userLocation.lat, userLocation.lng, pin.lat, pin.lng) <= 1000)
+    : []
+
+  // 카카오맵 초기화. 딱 한 번만 생성하고, 이후 위치 갱신은 반경원만 옮긴다.
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !mapContainerRef.current || !userLocation || kakaoMapRef.current) return
+
+    let cancelled = false
+
+    loadKakaoMapScript(KAKAO_MAP_KEY).then((kakao) => {
+      if (cancelled || kakaoMapRef.current) return
+
+      const map = new kakao.maps.Map(mapContainerRef.current, {
+        center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+        level: 4,
+      })
+      kakaoMapRef.current = map
+      setKakaoReady(true)
+
+      myLocationCircleRef.current = new kakao.maps.Circle({
+        center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+        radius: EXTERNAL_DISTANCE_METERS,
+        strokeWeight: 1.5,
+        strokeColor: '#2e7d6b',
+        strokeOpacity: 0.6,
+        fillColor: '#2e7d6b',
+        fillOpacity: 0.08,
+      })
+      myLocationCircleRef.current.setMap(map)
+
+      myLocationMarkerRef.current = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+        map,
+        image: createKakaoMyLocationMarkerImage(kakao),
+        zIndex: 10,
+      })
+
+      // 데스크톱(마우스)만 클릭으로 장소 미리보기를 연다. 모바일은 아래 터치 핸들러의 롱프레스로 처리한다.
+      if (!isTouchDevice()) {
+        kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
+          setPreviewPosition({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() })
+        })
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [userLocation])
+
+  // 위치가 갱신될 때마다 반경원/내 위치 점만 옮긴다(지도는 다시 만들지 않음) — 내 위치 실시간 동기화
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !userLocation || !myLocationCircleRef.current) return
+    const kakao = window.kakao
+    const position = new kakao.maps.LatLng(userLocation.lat, userLocation.lng)
+    myLocationCircleRef.current.setPosition(position)
+    myLocationMarkerRef.current?.setPosition(position)
+  }, [userLocation])
+
+  // nearbyPosts가 바뀔 때마다 카카오맵 마커를 다시 그린다.
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
+    const kakao = window.kakao
+
+    markersRef.current.forEach((marker) => marker.setMap(null))
+    markersRef.current = nearbyPosts.map((post) => {
+      const marker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(post.lat, post.lng),
+        map: kakaoMapRef.current,
+        image: createKakaoMarkerImage(
+          kakao,
+          CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
+          getPinIconEmoji(post.icon),
+        ),
+        opacity: getMarkerOpacity(post, now),
+      })
+
+      kakao.maps.event.addListener(marker, 'click', () => {
+        onSelectPost(post.id)
+      })
+
+      return marker
+    })
+  }, [nearbyPosts, now, onSelectPost])
+
+  // nearbyPins가 바뀔 때마다 빈 핀 마커를 다시 그린다.
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
+    const kakao = window.kakao
+
+    pinMarkersRef.current.forEach((marker) => marker.setMap(null))
+    pinMarkersRef.current = nearbyPins.map((pin) => {
+      const marker = new kakao.maps.Marker({
+        position: new kakao.maps.LatLng(pin.lat, pin.lng),
+        map: kakaoMapRef.current,
+        image: createKakaoPinMarkerImage(kakao),
+      })
+
+      kakao.maps.event.addListener(marker, 'click', () => {
+        setSelectedPinId(pin.id)
+      })
+
+      return marker
+    })
+  }, [nearbyPins])
+
+  // 장소검색으로 선택한 위치의 마커를 그리거나 옮기거나(재검색), 지운다(닫기).
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
+    const kakao = window.kakao
+
+    if (!searchedPlace) {
+      searchMarkerRef.current?.setMap(null)
+      searchMarkerRef.current = null
+      return
+    }
+
+    const position = new kakao.maps.LatLng(searchedPlace.lat, searchedPlace.lng)
+    if (searchMarkerRef.current) {
+      searchMarkerRef.current.setPosition(position)
+    } else {
+      const marker = new kakao.maps.Marker({
+        position,
+        map: kakaoMapRef.current,
+        image: createKakaoSearchMarkerImage(kakao),
+        zIndex: 20,
+      })
+      kakao.maps.event.addListener(marker, 'click', () => setPlaceCardOpen(true))
+      searchMarkerRef.current = marker
+    }
+  }, [searchedPlace])
+
+  // placeholder 컨테이너 크기를 재서 500m 원을 정확한 원형(px)으로 그린다.
+  useEffect(() => {
+    if (KAKAO_MAP_KEY) return
+    const el = placeholderRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) setPlaceholderSize({ width: entry.contentRect.width, height: entry.contentRect.height })
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [locationLoading])
+
+  // 핀에서 시작한 작성이 성공적으로 끝나면(글쓰기든 근처 글 수정이든) 원본 빈 핀은 삭제한다.
+  // App.jsx의 openCreateModal에 onConvertPin으로 넘겨서, 글 저장 성공 시 호출되게 한다.
+  async function convertPinToPost(pinId) {
+    const ownerSecret = getPinOwnerSecret(pinId)
+    if (!ownerSecret) return
+
+    try {
+      const deleted = await deletePin(pinId, ownerSecret)
+      if (deleted) {
+        forgetPinOwnership(pinId)
+        setPins((prev) => prev.filter((pin) => pin.id !== pinId))
+      }
+    } catch (err) {
+      console.error('[MapView] 핀 삭제(전환) 실패', err)
+    }
+  }
+
+  // 좌표에 실제로 서버 핀을 만드는 공용 로직 (지도 미리보기 / 장소검색 결과 선택에서 공유)
+  async function createPinAt(lat, lng) {
+    try {
+      const ownerSecret = generateOwnerSecret()
+      const created = await createPin({ lat, lng, ownerSecret })
+      setPins((prev) => (prev.some((pin) => pin.id === created.id) ? prev : [created, ...prev]))
+      savePinOwnership(created.id, ownerSecret)
+      return created
+    } catch (err) {
+      console.error('[MapView] 핀 생성 실패', err)
+      return null
+    }
+  }
+
+  // PlacePreview에서 "이 위치에 핀 만들기"를 눌렀을 때만 실제로 서버에 핀을 만든다.
+  async function handleCreatePinAtPreview() {
+    if (!previewPosition) return
+
+    setCreatingPin(true)
+    try {
+      const created = await createPinAt(previewPosition.lat, previewPosition.lng)
+      if (created) {
+        setPreviewPosition(null)
+        setSelectedPinId(created.id)
+      }
+    } finally {
+      setCreatingPin(false)
+    }
+  }
+
+  // 장소검색 결과를 선택하면 핀을 만들지 않고 위치 마커만 띄운다 — 정보 카드는 마커를 눌러야 열린다.
+  function handleSelectSearchPlace(place) {
+    setSearchedPlace(place)
+    setPlaceCardOpen(false)
+    setPlaceCommunityOpen(false)
+  }
+
+  // 카드를 닫아도 마커는 남아있는다(다시 눌러서 재조회 가능). 다음 검색 선택 시에만 마커가 바뀐다.
+  function closePlaceCard() {
+    setPlaceCardOpen(false)
+  }
+
+  // PlacePreview에서 "커뮤니티 보기"를 누르면 미리보기를 닫고 커뮤니티 탭으로 전환한다.
+  function handleViewCommunityFromPreview() {
+    setPreviewPosition(null)
+    onOpenCommunity()
+  }
+
+  // 핀 메뉴에서 "핀 삭제"를 누르면 본인이 만든 핀만(owner_secret 일치) 삭제된다.
+  async function handleDeletePin(pin) {
+    const ownerSecret = getPinOwnerSecret(pin.id)
+    if (!ownerSecret) return
+
+    setDeletingPinId(pin.id)
+    try {
+      const deleted = await deletePin(pin.id, ownerSecret)
+      if (deleted) {
+        forgetPinOwnership(pin.id)
+        setPins((prev) => prev.filter((p) => p.id !== pin.id))
+        setSelectedPinId(null)
+      }
+    } catch (err) {
+      console.error('[MapView] 핀 삭제 실패', err)
+    } finally {
+      setDeletingPinId(null)
+    }
+  }
+
+  // ---- placeholder 클릭 / 롱프레스 ----
+
+  function handlePlaceholderClick(event, bounds) {
+    if (isMarkerOrInfoWindowTarget(event.target)) return
+    // 터치 후 브라우저가 자동 발생시키는 synthetic click은 무시한다 (모바일은 롱프레스로만 연다).
+    if (Date.now() - lastTouchTimeRef.current < 700) return
+
+    const { lat, lng } = placeholderPointToLatLng(event.currentTarget, event.clientX, event.clientY, bounds)
+    setPreviewPosition({ lat, lng })
+  }
+
+  function handlePlaceholderTouchStart(event, bounds) {
+    if (isMarkerOrInfoWindowTarget(event.target)) return
+
+    const touch = event.touches[0]
+    const touchX = touch.clientX
+    const touchY = touch.clientY
+    const container = event.currentTarget
+
+    touchStartRef.current = { x: touchX, y: touchY }
+    lastTouchTimeRef.current = Date.now()
+
+    longPressTimerRef.current = setTimeout(() => {
+      const { lat, lng } = placeholderPointToLatLng(container, touchX, touchY, bounds)
+      setPreviewPosition({ lat, lng })
+    }, LONG_PRESS_MS)
+  }
+
+  // ---- 카카오맵 롱프레스 (모바일) ----
+
+  function handleKakaoTouchStart(event) {
+    if (!kakaoMapRef.current) return
+    if (isMarkerOrInfoWindowTarget(event.target)) return
+
+    const touch = event.touches[0]
+    const touchX = touch.clientX
+    const touchY = touch.clientY
+    const container = event.currentTarget
+
+    touchStartRef.current = { x: touchX, y: touchY }
+
+    longPressTimerRef.current = setTimeout(() => {
+      const kakao = window.kakao
+      const rect = container.getBoundingClientRect()
+      const point = new kakao.maps.Point(touchX - rect.left, touchY - rect.top)
+      const coords = kakaoMapRef.current.getProjection().coordsFromContainerPoint(point)
+      setPreviewPosition({ lat: coords.getLat(), lng: coords.getLng() })
+    }, LONG_PRESS_MS)
+  }
+
+  function handleTouchMove(event) {
+    const touch = event.touches[0]
+    const dx = touch.clientX - touchStartRef.current.x
+    const dy = touch.clientY - touchStartRef.current.y
+    if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) {
+      clearTimeout(longPressTimerRef.current)
+    }
+  }
+
+  function handleTouchEnd() {
+    clearTimeout(longPressTimerRef.current)
+    lastTouchTimeRef.current = Date.now()
+  }
+
+  const locationBanner = locationDenied && (
+    <div className="location-banner" role="status">
+      위치 접근이 거부되어 서울시청 기준 위치로 표시하고 있어요.
+    </div>
+  )
+
+  if (locationLoading) {
+    return (
+      <div className="map-placeholder" role="status" aria-label="위치 확인 중">
+        <span className="map-placeholder-label">위치 확인 중...</span>
+      </div>
+    )
+  }
+
+  const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null
+
+  // 장소검색으로 선택한 위치 반경 500m 글 — 사진 스트립과 "이 장소 커뮤니티"에서 함께 쓴다.
+  const placePosts = searchedPlace
+    ? filterPostsWithinRadius(activePosts, searchedPlace, COMMUNITY_RADIUS_METERS)
+    : []
+  const placePhotos = placePosts.filter((post) => post.image_url).map((post) => post.image_url)
+
+  const placeholderBounds = userLocation ? getPlaceholderBounds(userLocation) : null
+  const placeholderPositions = placeholderBounds ? projectToPercent(nearbyPosts, placeholderBounds) : new Map()
+  const placeholderPinPositions = placeholderBounds ? projectToPercent(nearbyPins, placeholderBounds) : new Map()
+  const myCircleDiameterPx = Math.min(placeholderSize.width, placeholderSize.height)
+    * (EXTERNAL_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
+
+  return (
+    <>
+      {locationBanner}
+      <div className="map-view">
+        <CategoryFilter activeCategories={activeCategories} onToggle={onToggleCategory} />
+        {kakaoReady && (
+          <PlaceSearch
+            kakao={window.kakao}
+            kakaoMap={kakaoMapRef.current}
+            onWriteHere={(lat, lng) => onOpenCreateModal(lat, lng)}
+            onSelectPlace={handleSelectSearchPlace}
+          />
+        )}
+
+        {!KAKAO_MAP_KEY ? (
+          <div
+            ref={placeholderRef}
+            className="map-placeholder"
+            role="img"
+            aria-label="지도 영역 placeholder"
+            onClick={(event) => handlePlaceholderClick(event, placeholderBounds)}
+            onTouchStart={(event) => handlePlaceholderTouchStart(event, placeholderBounds)}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
+            onContextMenu={(event) => event.preventDefault()}
+          >
+            <span className="map-placeholder-label">지도 영역</span>
+
+            {myCircleDiameterPx > 0 && (
+              <div
+                className="my-location-circle"
+                style={{ width: myCircleDiameterPx, height: myCircleDiameterPx }}
+              />
+            )}
+            <div className="my-location-dot" aria-hidden="true" />
+
+            {nearbyPosts.map((post) => {
+              const position = placeholderPositions.get(post.id)
+              if (!position) return null
+
+              return (
+                <button
+                  key={post.id}
+                  type="button"
+                  className="map-marker"
+                  style={{
+                    left: `${position.x}%`,
+                    top: `${position.y}%`,
+                    backgroundColor: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
+                    opacity: getMarkerOpacity(post, now),
+                  }}
+                  aria-label={`${post.category} 게시글`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onSelectPost(post.id)
+                  }}
+                >
+                  {getPinIconEmoji(post.icon)}
+                </button>
+              )
+            })}
+
+            {nearbyPins.map((pin) => {
+              const position = placeholderPinPositions.get(pin.id)
+              if (!position) return null
+
+              return (
+                <button
+                  key={pin.id}
+                  type="button"
+                  className="map-pin"
+                  style={{ left: `${position.x}%`, top: `${position.y}%` }}
+                  aria-label="빈 핀"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setSelectedPinId(pin.id)
+                  }}
+                >
+                  📌
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <div
+            ref={mapContainerRef}
+            className="map-container"
+            onTouchStart={handleKakaoTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchEnd}
+            onContextMenu={(event) => event.preventDefault()}
+          />
+        )}
+
+        {placeCommunityOpen && searchedPlace && (
+          <div className="place-community-overlay">
+            <div className="place-community-header">
+              <button type="button" className="menu-back-button" onClick={() => setPlaceCommunityOpen(false)}>
+                ‹ 뒤로
+              </button>
+              <div className="place-community-header-text">
+                <h1 className="community-page-title">{searchedPlace.name}</h1>
+                <p className="community-page-subtitle">이 장소 반경 500m 글이에요.</p>
+              </div>
+              <button
+                type="button"
+                className="place-community-write-button"
+                onClick={() => onOpenCreateModal(searchedPlace.lat, searchedPlace.lng)}
+              >
+                ✏️ 글쓰기
+              </button>
+            </div>
+            <CommunityFeed
+              posts={placePosts}
+              activeCategories={activeCategories}
+              onToggleCategory={onToggleCategory}
+              onSelectPost={onSelectPost}
+            />
+          </div>
+        )}
+
+        {!placeCommunityOpen && (
+          <MapSheet
+            posts={nearbyPosts}
+            activeCategories={activeCategories}
+            onToggleCategory={onToggleCategory}
+            onSelectPost={onSelectPost}
+          />
+        )}
+      </div>
+
+      <PlacePreview
+        position={previewPosition}
+        kakao={window.kakao}
+        onCreatePin={handleCreatePinAtPreview}
+        onViewCommunity={handleViewCommunityFromPreview}
+        onClose={() => setPreviewPosition(null)}
+        creatingPin={creatingPin}
+      />
+
+      {placeCardOpen && !placeCommunityOpen && (
+        <PlaceCard
+          place={searchedPlace}
+          photos={placePhotos}
+          onViewCommunity={() => setPlaceCommunityOpen(true)}
+          onClose={closePlaceCard}
+        />
+      )}
+
+      {selectedPin && (
+        <PinMenu
+          onWrite={() => {
+            setSelectedPinId(null)
+            onOpenCreateModal(selectedPin.lat, selectedPin.lng, {
+              onConvertPin: () => convertPinToPost(selectedPin.id),
+            })
+          }}
+          onAskQuestion={() => {
+            setSelectedPinId(null)
+            onOpenCreateModal(selectedPin.lat, selectedPin.lng, {
+              presetCategory: '동네질문',
+              onConvertPin: () => convertPinToPost(selectedPin.id),
+            })
+          }}
+          onDelete={() => handleDeletePin(selectedPin)}
+          onClose={() => setSelectedPinId(null)}
+          deleting={deletingPinId === selectedPin.id}
+        />
+      )}
+    </>
+  )
+}
+
+export default MapView
