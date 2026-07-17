@@ -151,7 +151,7 @@ function placeholderPointToLatLng(container, clientX, clientY, bounds) {
 }
 
 function isMarkerOrInfoWindowTarget(target) {
-  return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .category-filter'))
+  return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .map-top-bar'))
 }
 
 // 지도 렌더링 전담. 게시글 목록/위치/카테고리 필터는 App에서 props로 받아 커뮤니티 탭과 공유한다.
@@ -180,6 +180,8 @@ function MapView({
   const lastTouchTimeRef = useRef(0)
 
   const [pins, setPins] = useState([])
+  // 핀이 지도를 뒤덮어 가독성이 떨어질 때 사용자가 직접 껐다 켤 수 있는 표시 여부(서버 데이터는 그대로 유지).
+  const [pinsVisible, setPinsVisible] = useState(true)
   const [selectedPinId, setSelectedPinId] = useState(null)
   const [deletingPinId, setDeletingPinId] = useState(null)
   // 지도를 클릭한 지점(아직 서버에 핀이 만들어지지 않은 상태)의 건물/장소 미리보기
@@ -242,6 +244,8 @@ function MapView({
         now,
       )
     : []
+  // pinsVisible이 꺼져 있으면 서버 데이터/구독은 그대로 두고 화면 표시만 숨긴다(마커 클릭도 불가능해짐).
+  const visiblePins = pinsVisible ? nearbyPins : []
 
   // 카카오맵 초기화. 딱 한 번만 생성하고, 이후 위치 갱신은 반경원만 옮긴다.
   useEffect(() => {
@@ -325,13 +329,13 @@ function MapView({
     })
   }, [nearbyPosts, now, onSelectPost])
 
-  // nearbyPins가 바뀔 때마다 빈 핀 마커를 다시 그린다.
+  // visiblePins가 바뀔 때마다 빈 핀 마커를 다시 그린다(pinsVisible이 꺼져 있으면 빈 배열이라 전부 지워진다).
   useEffect(() => {
     if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
     const kakao = window.kakao
 
     pinMarkersRef.current.forEach((marker) => marker.setMap(null))
-    pinMarkersRef.current = nearbyPins.map((pin) => {
+    pinMarkersRef.current = visiblePins.map((pin) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(pin.lat, pin.lng),
         map: kakaoMapRef.current,
@@ -344,7 +348,7 @@ function MapView({
 
       return marker
     })
-  }, [nearbyPins])
+  }, [visiblePins])
 
   // 장소검색으로 선택한 위치의 마커를 그리거나 옮기거나(재검색), 지운다(닫기).
   useEffect(() => {
@@ -559,7 +563,7 @@ function MapView({
 
   const placeholderBounds = userLocation ? getPlaceholderBounds(userLocation) : null
   const placeholderPositions = placeholderBounds ? projectToPercent(nearbyPosts, placeholderBounds) : new Map()
-  const placeholderPinPositions = placeholderBounds ? projectToPercent(nearbyPins, placeholderBounds) : new Map()
+  const placeholderPinPositions = placeholderBounds ? projectToPercent(visiblePins, placeholderBounds) : new Map()
   const myCircleDiameterPx = Math.min(placeholderSize.width, placeholderSize.height)
     * (EXTERNAL_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
 
@@ -567,7 +571,20 @@ function MapView({
     <>
       {locationBanner}
       <div className="map-view">
-        <CategoryFilter activeCategories={activeCategories} onToggle={onToggleCategory} />
+        <div className="map-top-bar">
+          <CategoryFilter activeCategories={activeCategories} onToggle={onToggleCategory} />
+          <button
+            type="button"
+            className={`pin-toggle-button${pinsVisible ? ' active' : ''}`}
+            aria-pressed={pinsVisible}
+            onClick={() => {
+              setPinsVisible((prev) => !prev)
+              setSelectedPinId(null)
+            }}
+          >
+            📌 핀 {pinsVisible ? '숨기기' : '보기'}
+          </button>
+        </div>
         {kakaoReady && (
           <PlaceSearch
             kakao={window.kakao}
@@ -626,7 +643,7 @@ function MapView({
               )
             })}
 
-            {nearbyPins.map((pin) => {
+            {visiblePins.map((pin) => {
               const position = placeholderPinPositions.get(pin.id)
               if (!position) return null
 
