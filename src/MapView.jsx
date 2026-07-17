@@ -151,7 +151,7 @@ function placeholderPointToLatLng(container, clientX, clientY, bounds) {
 }
 
 function isMarkerOrInfoWindowTarget(target) {
-  return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .category-filter'))
+  return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .category-filter, .pin-toggle-button'))
 }
 
 // 지도 렌더링 전담. 게시글 목록/위치/카테고리 필터는 App에서 props로 받아 커뮤니티 탭과 공유한다.
@@ -190,6 +190,9 @@ function MapView({
   const [placeCommunityOpen, setPlaceCommunityOpen] = useState(false)
   const [creatingPin, setCreatingPin] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  // 지도 위 마커(게시글 색 원 마커 + 빈 핀 📌)를 통째로 보이거나 숨기는 토글.
+  // 앱을 켰을 때 마커가 빽빽해 가독성이 떨어지지 않도록 기본은 숨김이고, 상단 버튼으로 켠다.
+  const [markersVisible, setMarkersVisible] = useState(false)
 
   const [kakaoReady, setKakaoReady] = useState(false)
   const [placeholderSize, setPlaceholderSize] = useState({ width: 0, height: 0 })
@@ -299,12 +302,16 @@ function MapView({
     myLocationMarkerRef.current?.setPosition(position)
   }, [userLocation])
 
-  // nearbyPosts가 바뀔 때마다 카카오맵 마커를 다시 그린다.
+  // nearbyPosts가 바뀔 때마다 카카오맵 마커를 다시 그린다. 마커 숨김(markersVisible=false)이면 모두 지운다.
   useEffect(() => {
     if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
     const kakao = window.kakao
 
     markersRef.current.forEach((marker) => marker.setMap(null))
+    if (!markersVisible) {
+      markersRef.current = []
+      return
+    }
     markersRef.current = nearbyPosts.map((post) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(post.lat, post.lng),
@@ -323,14 +330,18 @@ function MapView({
 
       return marker
     })
-  }, [nearbyPosts, now, onSelectPost])
+  }, [nearbyPosts, now, onSelectPost, markersVisible])
 
-  // nearbyPins가 바뀔 때마다 빈 핀 마커를 다시 그린다.
+  // nearbyPins가 바뀔 때마다 빈 핀 마커를 다시 그린다. 마커 숨김이면 모두 지운다.
   useEffect(() => {
     if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
     const kakao = window.kakao
 
     pinMarkersRef.current.forEach((marker) => marker.setMap(null))
+    if (!markersVisible) {
+      pinMarkersRef.current = []
+      return
+    }
     pinMarkersRef.current = nearbyPins.map((pin) => {
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(pin.lat, pin.lng),
@@ -344,7 +355,7 @@ function MapView({
 
       return marker
     })
-  }, [nearbyPins])
+  }, [nearbyPins, markersVisible])
 
   // 장소검색으로 선택한 위치의 마커를 그리거나 옮기거나(재검색), 지운다(닫기).
   useEffect(() => {
@@ -568,6 +579,14 @@ function MapView({
       {locationBanner}
       <div className="map-view">
         <CategoryFilter activeCategories={activeCategories} onToggle={onToggleCategory} />
+        <button
+          type="button"
+          className={`pin-toggle-button${markersVisible ? ' active' : ''}`}
+          aria-pressed={markersVisible}
+          onClick={() => setMarkersVisible((prev) => !prev)}
+        >
+          📌 핀 {markersVisible ? '켜짐' : '꺼짐'}
+        </button>
         {kakaoReady && (
           <PlaceSearch
             kakao={window.kakao}
@@ -600,7 +619,7 @@ function MapView({
             )}
             <div className="my-location-dot" aria-hidden="true" />
 
-            {nearbyPosts.map((post) => {
+            {markersVisible && nearbyPosts.map((post) => {
               const position = placeholderPositions.get(post.id)
               if (!position) return null
 
@@ -626,7 +645,7 @@ function MapView({
               )
             })}
 
-            {nearbyPins.map((pin) => {
+            {markersVisible && nearbyPins.map((pin) => {
               const position = placeholderPinPositions.get(pin.id)
               if (!position) return null
 
