@@ -7,11 +7,13 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 // posts 목록 조회. Supabase 연결/조회 실패 시 dummy-data.json으로 대체한다.
+// 신고 누적으로 hidden=true가 된 글은 아예 조회 대상에서 제외한다(자동 숨김).
 export async function getPosts() {
   try {
     const { data, error } = await supabase
       .from('posts')
       .select('*')
+      .eq('hidden', false)
       .order('created_at', { ascending: false })
 
     if (error) throw error
@@ -24,7 +26,9 @@ export async function getPosts() {
 
 // 새 게시글 등록. postType: 'local'(내 위치 500m 이내) | 'external'(500m 밖에서 쓴 외부작성)
 // 소유권 확인용 ownerSecret을 서버의 post_owners 테이블에 같이 기록한다(삭제 권한 확인용).
-export async function createPost({ lat, lng, category, title, content, postType, imageUrl, icon, ownerSecret }) {
+// deviceSecret(notifications.js getOrCreateDeviceSecret)도 함께 저장해두면, 나중에 폰을
+// 바꿔도 그 값으로 restoreOwnership을 호출해 이 글의 owner_secret을 되찾을 수 있다.
+export async function createPost({ lat, lng, category, title, content, postType, imageUrl, icon, ownerSecret, deviceSecret }) {
   const { data, error } = await supabase.rpc('create_post_with_owner', {
     p_lat: lat,
     p_lng: lng,
@@ -34,6 +38,7 @@ export async function createPost({ lat, lng, category, title, content, postType,
     p_post_type: postType,
     p_image_url: imageUrl ?? null,
     p_owner_secret: ownerSecret,
+    p_device_secret: deviceSecret ?? null,
   })
 
   if (error) throw error
@@ -62,11 +67,25 @@ export async function getPins() {
 }
 
 // 빈 핀 생성. 소유권 확인용 ownerSecret을 pin_owners 테이블에 같이 기록한다(삭제 권한 확인용).
-export async function createPin({ lat, lng, ownerSecret }) {
+// deviceSecret은 createPost와 동일한 이유로 함께 저장한다(익명 소유권 복구용).
+export async function createPin({ lat, lng, ownerSecret, deviceSecret }) {
   const { data, error } = await supabase.rpc('create_pin_with_owner', {
     p_lat: lat,
     p_lng: lng,
     p_owner_secret: ownerSecret,
+    p_device_secret: deviceSecret ?? null,
+  })
+
+  if (error) throw error
+  return data
+}
+
+// 다른 기기에서 예전 device_secret(복구 코드)을 입력했을 때, 그 값으로 만든 글/핀의
+// owner_secret을 전부 되찾아온다 — [{ target_type: 'post'|'pin', target_id, owner_secret }].
+// 회원가입 없이 폰을 바꿔도 내 글/핀을 계속 관리(삭제)할 수 있게 하는 복구 기능(RecoveryCode.jsx).
+export async function restoreOwnership(deviceSecret) {
+  const { data, error } = await supabase.rpc('restore_ownership', {
+    p_device_secret: deviceSecret,
   })
 
   if (error) throw error
@@ -159,11 +178,14 @@ export async function updatePost(id, { category, title, content, imageUrl, icon 
   return data
 }
 
-// 신뢰도 확인(confirm_count) 1 증가 — 실시간 알림 카테고리 전용
+// 신뢰도 확인(confirm_count) 1 증가 — 실시간 알림 카테고리 전용.
+// last_confirmed_at도 함께 갱신해서 getElapsedRatio(categories.js)가 "다들 아직 그렇다고
+// 확인해준" 글을 원래 작성 시각만으로 부당하게 만료 처리하지 않게 한다(수정됨 배지는
+// updated_at만 보므로 이 갱신으로 오해되지 않는다).
 export async function incrementConfirmCount(id, currentCount) {
   const { data, error } = await supabase
     .from('posts')
-    .update({ confirm_count: currentCount + 1 })
+    .update({ confirm_count: currentCount + 1, last_confirmed_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single()
@@ -185,23 +207,25 @@ export async function incrementLikes(id, currentCount) {
   return data
 }
 
-// 특정 게시글의 댓글 목록 조회
+// 특정 게시글의 댓글 목록 조회. 신고 누적으로 hidden=true가 된 댓글은 제외한다.
 export async function getComments(postId) {
   const { data, error } = await supabase
     .from('comments')
     .select('*')
     .eq('post_id', postId)
+    .eq('hidden', false)
     .order('created_at', { ascending: true })
 
   if (error) throw error
   return data
 }
 
-// 댓글 등록
-export async function createComment(postId, content) {
+// 댓글 등록. parentCommentId를 넘기면 그 댓글의 답글로 등록된다(답글의 답글은 지원 안 함 —
+// Comment.jsx가 한 단계 깊이로만 그린다).
+export async function createComment(postId, content, parentCommentId = null) {
   const { data, error } = await supabase
     .from('comments')
-    .insert({ post_id: postId, content })
+    .insert({ post_id: postId, content, parent_comment_id: parentCommentId })
     .select()
     .single()
 
@@ -209,20 +233,62 @@ export async function createComment(postId, content) {
   return data
 }
 
-// 특정 게시글의 새 댓글을 실시간으로 구독한다. 구독 해제 함수를 반환한다.
-export function subscribeToComments(postId, onInsert) {
+// 특정 게시글의 댓글 등록(INSERT)/신고로 인한 숨김(UPDATE)을 실시간으로 구독한다. 구독 해제 함수를 반환한다.
+export function subscribeToComments(postId, { onInsert, onUpdate }) {
   const channel = supabase
     .channel(`comments-${postId}`)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` },
-      (payload) => onInsert(payload.new),
+      (payload) => onInsert?.(payload.new),
+    )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` },
+      (payload) => onUpdate?.(payload.new),
     )
     .subscribe()
 
   return () => {
     supabase.removeChannel(channel)
   }
+}
+
+// 게시글/댓글 신고. 같은 브라우저(reporterSecret)가 같은 대상을 여러 번 눌러도 서버에서
+// 1회만 집계되고(post_reports/comment_reports의 unique 제약), 누적 5회부터는 RPC가
+// posts.hidden/comments.hidden을 자동으로 true로 바꿔 즉시 노출을 중단시킨다.
+export async function reportPost(postId, reporterSecret) {
+  const { data, error } = await supabase.rpc('report_post', {
+    p_post_id: postId,
+    p_reporter_secret: reporterSecret,
+  })
+
+  if (error) throw error
+  return data // { report_count, hidden, already_reported }
+}
+
+export async function reportComment(commentId, reporterSecret) {
+  const { data, error } = await supabase.rpc('report_comment', {
+    p_comment_id: commentId,
+    p_reporter_secret: reporterSecret,
+  })
+
+  if (error) throw error
+  return data // { report_count, hidden, already_reported }
+}
+
+// 댓글 이모지 반응 토글 — 같은 reactorSecret(notifications.js getOrCreateDeviceSecret 재사용)이
+// 같은 이모지를 다시 누르면 추가↔삭제가 토글된다. comments.reactions 갱신은 realtime UPDATE로도
+// 오지만(subscribeToComments), 이 응답으로 바로 낙관적 갱신할 수 있다.
+export async function reactToComment(commentId, emoji, reactorSecret) {
+  const { data, error } = await supabase.rpc('react_to_comment', {
+    p_comment_id: commentId,
+    p_emoji: emoji,
+    p_reactor_secret: reactorSecret,
+  })
+
+  if (error) throw error
+  return data // { emoji, count, reacted }
 }
 
 // 동네 전체 공용 채팅 메시지 최근 200개 조회(오래된 순으로 정렬해 반환).

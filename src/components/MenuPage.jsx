@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
+import RecoveryCode from './RecoveryCode.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
-function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onOpenCreateModal, userLocation }) {
+function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onOpenCreateModal, userLocation, now }) {
   const [view, setView] = useState('home')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -88,6 +89,13 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                 <span className="menu-card-desc">관심 지역·키워드에 새 글 오면 알려드려요</span>
               </span>
             </button>
+            <button type="button" className="menu-card" onClick={() => setView('recovery')}>
+              <span className="menu-card-icon">🔑</span>
+              <span className="menu-card-text">
+                <span className="menu-card-label">복구 코드</span>
+                <span className="menu-card-desc">폰을 바꿔도 내 글/핀을 계속 관리해요</span>
+              </span>
+            </button>
           </div>
         </>
       )}
@@ -99,6 +107,16 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
             <h1 className="menu-page-title">알림 설정</h1>
           </div>
           <NotificationSettings userLocation={userLocation} />
+        </>
+      )}
+
+      {view === 'recovery' && (
+        <>
+          <div className="menu-page-header">
+            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
+            <h1 className="menu-page-title">복구 코드</h1>
+          </div>
+          <RecoveryCode />
         </>
       )}
 
@@ -114,6 +132,8 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
             onToggleCategory={onToggleCategory}
             onSelectPost={onSelectPost}
             fallbackPosts={posts}
+            userLocation={userLocation}
+            now={now}
           />
         </>
       )}
@@ -198,6 +218,8 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                 onToggleCategory={onToggleCategory}
                 onSelectPost={onSelectPost}
                 fallbackPosts={posts}
+                userLocation={userLocation}
+                now={now}
               />
             </>
           )}

@@ -1,6 +1,9 @@
 // 로그인 없이 이 브라우저를 식별하는 익명 device_secret + 알림 설정(관심 지역/키워드/조용한 시간)을
 // localStorage에 보관한다. myPosts.js의 owner_secret 패턴과 같은 철학 — 서버는 device_secret으로만
-// "이 기기의 구독"을 식별하고, 값 자체는 로컬에만 있다.
+// "이 기기"를 식별하고, 값 자체는 로컬에만 있다.
+// 이 device_secret은 원래 push_subscriptions 식별 전용이었지만, 24번 단계(익명 소유권 복구)부터는
+// post_owners/pin_owners에도 같은 값이 함께 기록된다 — "이 브라우저의 유일한 익명 정체성"이라는
+// 의미가 커져서, 복구 코드(RecoveryCode.jsx)도 이 값을 그대로 재사용한다(별도 코드 체계 안 만듦).
 import { upsertPushSubscription, deletePushSubscription } from './supabaseClient'
 
 const DEVICE_SECRET_KEY = 'discopipi_notification_device_secret'
@@ -26,6 +29,17 @@ export function getOrCreateDeviceSecret() {
     localStorage.setItem(DEVICE_SECRET_KEY, secret)
   }
   return secret
+}
+
+// 익명 소유권 복구(RecoveryCode.jsx)에서 다른 기기의 복구 코드를 입력했을 때, 이 기기가
+// 그 정체성을 이어받게 한다 — 이후 이 기기에서 쓰는 글/핀도 같은 device_secret으로 계속
+// 묶이도록. 알림 구독 자체를 옮기는 건 아니다(요청받은 범위 밖 — 필요해지면 그때 추가).
+export function adoptDeviceSecret(secret) {
+  try {
+    localStorage.setItem(DEVICE_SECRET_KEY, secret)
+  } catch {
+    // localStorage를 못 쓰면 무시 — 이번 세션에서만 기존 값을 계속 쓰게 된다.
+  }
 }
 
 export function getNotificationPrefs() {

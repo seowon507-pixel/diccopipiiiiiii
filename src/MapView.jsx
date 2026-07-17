@@ -9,7 +9,7 @@ import {
 import {
   CATEGORY_COLORS,
   DEFAULT_CATEGORY_COLOR,
-  getElapsedRatio,
+  getFadeOpacity,
   getMarkerIcon,
   getMarkerTier,
 } from './categories'
@@ -19,6 +19,7 @@ import { getDistanceMeters } from './geo'
 import {
   filterPostsWithinRadius,
   filterMapVisiblePosts,
+  getWeeklyDigestPosts,
   COMMUNITY_RADIUS_METERS,
   EXTERNAL_DISTANCE_METERS,
   MAP_VISIBLE_MINUTES,
@@ -29,6 +30,7 @@ import {
   forgetPinOwnership,
   getPinOwnerSecret,
 } from './myPosts'
+import { getOrCreateDeviceSecret } from './notifications'
 import CategoryFilter from './components/CategoryFilter.jsx'
 import PlaceSearch from './components/PlaceSearch.jsx'
 import PinMenu from './components/PinMenu.jsx'
@@ -37,6 +39,7 @@ import PlaceCard from './components/PlaceCard.jsx'
 import CommunityFeed from './components/CommunityFeed.jsx'
 import MapSheet from './components/MapSheet.jsx'
 import PostCard from './components/PostCard.jsx'
+import WeeklyDigest from './components/WeeklyDigest.jsx'
 
 const KAKAO_MAP_KEY = import.meta.env.VITE_KAKAO_MAP_KEY
 
@@ -45,8 +48,6 @@ const PLACEHOLDER_VIEWPORT_RADIUS_METERS = 1300
 
 const LONG_PRESS_MS = 500
 const MOVE_CANCEL_PX = 10
-const NEAR_EXPIRY_RATIO = 0.7
-const NEAR_EXPIRY_OPACITY = 0.45
 // 이 시간 안에 지도가 뜨지 않으면(도메인 미등록 등 script.onerror로 안 잡히는 실패 포함) 에러로 간주한다.
 const MAP_LOAD_TIMEOUT_MS = 10000
 
@@ -80,10 +81,6 @@ function loadKakaoMapScript(appKey) {
     script.onerror = reject
     document.head.appendChild(script)
   })
-}
-
-function getMarkerOpacity(post, referenceTime) {
-  return getElapsedRatio(post, referenceTime) >= NEAR_EXPIRY_RATIO ? NEAR_EXPIRY_OPACITY : 1
 }
 
 // 이모지가 섞인 SVG는 btoa가 바로 처리 못하므로 유니코드 안전하게 base64로 변환한다.
@@ -228,6 +225,7 @@ function MapView({
   selectedPostId,
   onOpenCommunity,
   onOpenCreateModal,
+  recenterTarget,
 }) {
   const mapContainerRef = useRef(null)
   const placeholderRef = useRef(null)
@@ -395,6 +393,13 @@ function MapView({
     setMapRetryToken((token) => token + 1)
   }
 
+  // "내 위치로" 버튼 — 지도를 드래그해서 벗어나 있어도 현재 GPS 위치로 바로 되돌아온다.
+  // placeholder 모드는 뷰포트가 애초에 항상 userLocation 중심이라 이 버튼 자체를 안 그린다.
+  function handleRecenterToMyLocation() {
+    if (!kakaoMapRef.current || !userLocation) return
+    kakaoMapRef.current.setCenter(new window.kakao.maps.LatLng(userLocation.lat, userLocation.lng))
+  }
+
   // 위치가 갱신될 때마다 반경원/내 위치 점만 옮긴다(지도는 다시 만들지 않음) — 내 위치 실시간 동기화
   useEffect(() => {
     if (!KAKAO_MAP_KEY || !userLocation || !myLocationCircleRef.current) return
@@ -403,6 +408,15 @@ function MapView({
     myLocationCircleRef.current.setPosition(position)
     myLocationMarkerRef.current?.setPosition(position)
   }, [userLocation])
+
+  // FAB 빠른 등록(App.jsx)이 성공하면 그 글 위치로 지도를 옮긴다. App이 매번 새 객체를
+  // 넘겨주므로(좌표가 같아도) 연달아 눌러도 매번 재중심된다. placeholder 모드는 애초에
+  // 항상 userLocation 중심이라(빠른 등록도 항상 userLocation에서만 일어남) 별도 처리가 없다.
+  useEffect(() => {
+    if (!KAKAO_MAP_KEY || !kakaoMapRef.current || !recenterTarget) return
+    const kakao = window.kakao
+    kakaoMapRef.current.setCenter(new kakao.maps.LatLng(recenterTarget.lat, recenterTarget.lng))
+  }, [recenterTarget])
 
   // 지도 상단 고정 헤더에 보여줄 동네명(동 단위) 조회 — 카카오 지도가 준비됐고 위치가 있을 때만.
   useEffect(() => {
@@ -469,7 +483,7 @@ function MapView({
           tier: getMarkerTier(post.category),
           selected: post.id === selectedPostId,
         }),
-        opacity: getMarkerOpacity(post, now),
+        opacity: getFadeOpacity(post, now),
         zIndex: post.id === selectedPostId ? 8 : 4,
       })
 
@@ -563,7 +577,7 @@ function MapView({
   async function createPinAt(lat, lng) {
     try {
       const ownerSecret = generateOwnerSecret()
-      const created = await createPin({ lat, lng, ownerSecret })
+      const created = await createPin({ lat, lng, ownerSecret, deviceSecret: getOrCreateDeviceSecret() })
       setPins((prev) => (prev.some((pin) => pin.id === created.id) ? prev : [created, ...prev]))
       savePinOwnership(created.id, ownerSecret)
       return created
@@ -713,6 +727,13 @@ function MapView({
     : []
   const placePhotos = placePosts.filter((post) => post.image_url).map((post) => post.image_url)
 
+  // "이번 주 우리 동네 소식" 카드용 — 커뮤니티 탭과 동일한 반경(내 위치 500m)에서 뽑는다.
+  // App.jsx의 communityPosts와 같은 계산이라 여기서 다시 만들지 않고 그대로 재사용해도 됐겠지만,
+  // MapView는 그 prop을 안 받고 있어서(activePosts만 받음) 이미 갖고 있는 필터 유틸로 다시
+  // 구한다 — 새 prop을 추가로 늘리지 않기 위한 선택.
+  const digestPool = userLocation ? filterPostsWithinRadius(activePosts, userLocation, COMMUNITY_RADIUS_METERS) : []
+  const digestPosts = getWeeklyDigestPosts(digestPool, now)
+
   const placeholderBounds = userLocation ? getPlaceholderBounds(userLocation) : null
   const placeholderPositions = placeholderBounds ? projectToPercent(nearbyPosts, placeholderBounds) : new Map()
   const placeholderPinPositions = placeholderBounds ? projectToPercent(visiblePins, placeholderBounds) : new Map()
@@ -752,6 +773,7 @@ function MapView({
               onSelectPlace={handleSelectSearchPlace}
             />
           )}
+          <WeeklyDigest posts={digestPosts} onSelectPost={onSelectPost} />
         </div>
 
         <div className="map-side-rail">
@@ -768,6 +790,17 @@ function MapView({
           >
             📌
           </button>
+          {KAKAO_MAP_KEY && (
+            <button
+              type="button"
+              className="recenter-button"
+              aria-label="내 위치로 이동"
+              disabled={!userLocation}
+              onClick={handleRecenterToMyLocation}
+            >
+              🎯
+            </button>
+          )}
         </div>
 
         {!KAKAO_MAP_KEY ? (
@@ -836,7 +869,7 @@ function MapView({
                     left: `${leftPct}%`,
                     top: `${topPct}%`,
                     backgroundColor: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
-                    opacity: getMarkerOpacity(post, now),
+                    opacity: getFadeOpacity(post, now),
                   }}
                   aria-label={`${post.category} 게시글`}
                   onClick={(event) => {
@@ -924,6 +957,8 @@ function MapView({
               onToggleCategory={onToggleCategory}
               onSelectPost={onSelectPost}
               fallbackPosts={activePosts}
+              userLocation={userLocation}
+              now={now}
             />
           </div>
         )}
@@ -935,6 +970,8 @@ function MapView({
             onToggleCategory={onToggleCategory}
             onSelectPost={onSelectPost}
             fallbackPosts={activePosts}
+            userLocation={userLocation}
+            now={now}
           />
         )}
       </div>
@@ -976,6 +1013,8 @@ function MapView({
                 <PostCard
                   key={post.id}
                   post={post}
+                  distance={userLocation ? getDistanceMeters(userLocation.lat, userLocation.lng, post.lat, post.lng) : null}
+                  now={now}
                   onClick={() => {
                     setOpenClusterPosts(null)
                     onSelectPost(post.id)

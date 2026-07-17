@@ -9,3 +9,9 @@ export function getDistanceMeters(lat1, lng1, lat2, lng2) {
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return EARTH_RADIUS_M * c
 }
+
+// 사람이 읽기 좋은 거리 문자열 — 피드 카드의 "거리·시간" 스캔 라인이 쓴다.
+export function formatDistanceMeters(meters) {
+  if (meters < 1000) return `${Math.round(meters)}m`
+  return `${(meters / 1000).toFixed(1)}km`
+}

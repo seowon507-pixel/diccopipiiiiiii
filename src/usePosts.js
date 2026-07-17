@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getPosts, subscribeToPostChanges } from './supabaseClient'
-import { CATEGORIES, getElapsedRatio } from './categories'
+import { CATEGORIES, getElapsedRatio, getReactionCount } from './categories'
 import { getDistanceMeters } from './geo'
 
 const NEARBY_RADIUS_METERS = 1000
@@ -51,6 +51,21 @@ export function getTopLikedPosts(posts, limit = 5) {
         ? (b.likes_count ?? 0) - (a.likes_count ?? 0)
         : new Date(b.created_at) - new Date(a.created_at)
     ))
+    .slice(0, limit)
+}
+
+// 홈(지도 탭) 상단 "이번 주 우리 동네 소식" 카드용 — 최근 며칠 사이 반응(확인/추천 합산,
+// categories.js getReactionCount 재사용)이 있는 글 중 인기순 상위 몇 개만 자동으로 뽑는다.
+// 실시간 카테고리는 유효시간이 짧아(최장 2시간) 지난 글이 이미 activePosts에서 걸러지므로,
+// 결과는 사실상 자유주제 글 위주가 된다 — "소식 요약"이라는 취지에 맞는 자연스러운 결과다.
+export const WEEKLY_DIGEST_DAYS = 7
+
+export function getWeeklyDigestPosts(posts, referenceTime, limit = 3) {
+  const cutoffMs = referenceTime - WEEKLY_DIGEST_DAYS * 24 * 60 * 60 * 1000
+
+  return posts
+    .filter((post) => new Date(post.created_at).getTime() >= cutoffMs && getReactionCount(post) > 0)
+    .sort((a, b) => getReactionCount(b) - getReactionCount(a))
     .slice(0, limit)
 }
 
@@ -107,7 +122,12 @@ export function usePosts(userLocation) {
         setPosts((prev) => (prev.some((post) => post.id === newPost.id) ? prev : [newPost, ...prev]))
       },
       onUpdate: (updatedPost) => {
-        setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? { ...post, ...updatedPost } : post)))
+        // 신고 누적으로 hidden=true가 되면(자동 숨김) 병합 대신 목록에서 바로 제거한다.
+        setPosts((prev) => (
+          updatedPost.hidden
+            ? prev.filter((post) => post.id !== updatedPost.id)
+            : prev.map((post) => (post.id === updatedPost.id ? { ...post, ...updatedPost } : post))
+        ))
       },
       onDelete: (deletedPost) => {
         setPosts((prev) => prev.filter((post) => post.id !== deletedPost.id))

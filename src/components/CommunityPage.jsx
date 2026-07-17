@@ -7,7 +7,7 @@ import { groupPostsByBuilding } from '../usePosts'
 // 지도와 별도의 전체화면 커뮤니티 탭. 표시 데이터(posts)는 App에서 지도 탭과 공유한다(내 주변 500m).
 // 글 목록을 바로 보여주지 않고, 먼저 건물 단위로 묶어 보여준 뒤 건물을 선택해야 그 건물의 글이 나온다.
 // fallbackPosts(App의 activePosts, 위치 무관)는 우리 동네에 글이 하나도 없을 때 대체 콘텐츠로 쓴다.
-function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts = [] }) {
+function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts = [], userLocation, now }) {
   const [selectedBuilding, setSelectedBuilding] = useState(null)
 
   const buildings = useMemo(() => groupPostsByBuilding(posts), [posts])
@@ -26,6 +26,8 @@ function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost
           onToggleCategory={onToggleCategory}
           onSelectPost={onSelectPost}
           fallbackPosts={fallbackPosts}
+          userLocation={userLocation}
+          now={now}
         />
       </div>
     )
@@ -38,7 +40,7 @@ function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost
       {buildings.length === 0 ? (
         <div className="community-empty-state">
           <p className="community-empty">이 동네엔 아직 글이 없어요. 첫 글을 남겨보는 건 어때요?</p>
-          <TrendingFallback posts={fallbackPosts} onSelectPost={onSelectPost} />
+          <TrendingFallback posts={fallbackPosts} onSelectPost={onSelectPost} userLocation={userLocation} now={now} />
         </div>
       ) : (
         <BuildingList buildings={buildings} onSelect={setSelectedBuilding} />

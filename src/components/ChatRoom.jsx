@@ -1,17 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { getChatMessages, sendChatMessage, subscribeToChatMessages } from '../supabaseClient'
 import { getDistanceMeters } from '../geo'
 
-const NEARBY_RADIUS_METERS = 1000
+const DEFAULT_RADIUS_METERS = 1000
+const RADIUS_OPTIONS = [
+  { meters: 500, label: '500m' },
+  { meters: 1000, label: '1km' },
+  { meters: 2000, label: '2km' },
+]
 const CONTENT_MAX_LENGTH = 300
 
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
-// 게시글 댓글과 별개로, 내 위치 1km 이내 이웃과 실시간으로 대화하는 동네 전체 공용 채팅방.
+// 게시글 댓글과 별개로, 내 위치 기준 반경 이내 이웃과 실시간으로 대화하는 동네 전체 공용 채팅방.
+// 서버에서는 최근 200개를 반경 상관없이 통째로 받아두고(rawMessages), 화면에 보일 것만
+// radiusMeters로 클라이언트에서 걸러낸다 — 반경을 바꿔도 재요청 없이 즉시 다시 걸러진다.
 function ChatRoom({ userLocation }) {
-  const [messages, setMessages] = useState([])
+  const [rawMessages, setRawMessages] = useState([])
+  const [radiusMeters, setRadiusMeters] = useState(DEFAULT_RADIUS_METERS)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const listRef = useRef(null)
@@ -21,16 +29,11 @@ function ChatRoom({ userLocation }) {
     let cancelled = false
 
     getChatMessages().then((data) => {
-      if (cancelled) return
-      setMessages(data.filter((msg) => (
-        getDistanceMeters(userLocation.lat, userLocation.lng, msg.lat, msg.lng) <= NEARBY_RADIUS_METERS
-      )))
+      if (!cancelled) setRawMessages(data)
     })
 
     const unsubscribe = subscribeToChatMessages((newMessage) => {
-      const distance = getDistanceMeters(userLocation.lat, userLocation.lng, newMessage.lat, newMessage.lng)
-      if (distance > NEARBY_RADIUS_METERS) return
-      setMessages((prev) => (prev.some((msg) => msg.id === newMessage.id) ? prev : [...prev, newMessage]))
+      setRawMessages((prev) => (prev.some((msg) => msg.id === newMessage.id) ? prev : [...prev, newMessage]))
     })
 
     return () => {
@@ -38,6 +41,13 @@ function ChatRoom({ userLocation }) {
       unsubscribe()
     }
   }, [userLocation])
+
+  const messages = useMemo(() => {
+    if (!userLocation) return []
+    return rawMessages.filter((msg) => (
+      getDistanceMeters(userLocation.lat, userLocation.lng, msg.lat, msg.lng) <= radiusMeters
+    ))
+  }, [rawMessages, userLocation, radiusMeters])
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
@@ -62,7 +72,20 @@ function ChatRoom({ userLocation }) {
   return (
     <div className="chat-room">
       <h1 className="chat-room-title">동네 채팅</h1>
-      <p className="chat-room-subtitle">내 위치 1km 이내 이웃과 실시간으로 대화해요.</p>
+      <p className="chat-room-subtitle">내 위치 기준 반경 이내 이웃과 실시간으로 대화해요.</p>
+
+      <div className="chat-radius-row">
+        {RADIUS_OPTIONS.map((option) => (
+          <button
+            key={option.meters}
+            type="button"
+            className={`chat-radius-chip${radiusMeters === option.meters ? ' active' : ''}`}
+            onClick={() => setRadiusMeters(option.meters)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
 
       <div className="chat-room-messages" ref={listRef}>
         {messages.length === 0 && <p className="chat-room-empty">아직 대화가 없어요. 첫 메시지를 남겨보세요.</p>}

@@ -15,7 +15,7 @@ function getBreakpoints(containerHeight) {
 // 열려 지도와 목록을 함께 보고, 핸들을 끝까지 위로 끌면 거의 전체, 끝까지 아래로 끌면 핸들만
 // 남기고 접힌다. 열었을 때 기본은 실시간 이슈 캐러셀만 먼저 보여주고, "커뮤니티 더보기"를 눌러야
 // 자유주제 포함 전체 글 목록(검색/필터/정렬)이 펼쳐진다.
-function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts }) {
+function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts, userLocation, now }) {
   const [communityExpanded, setCommunityExpanded] = useState(false)
   const { wrapperRef, heightPx, dragging, handlers } = useDraggableSheet({
     getBreakpoints,
@@ -63,6 +63,8 @@ function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost, fal
                 onToggleCategory={onToggleCategory}
                 onSelectPost={onSelectPost}
                 fallbackPosts={fallbackPosts}
+                userLocation={userLocation}
+                now={now}
               />
             </>
           )}

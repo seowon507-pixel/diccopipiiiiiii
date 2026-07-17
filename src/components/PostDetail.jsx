@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, categoryHasExpiry } from '../categories'
-import { getComments, createComment, subscribeToComments } from '../supabaseClient'
+import { getComments, createComment, subscribeToComments, reportPost } from '../supabaseClient'
+import { getReporterSecret } from '../myPosts'
 import { useDraggableSheet } from '../useDraggableSheet'
+import ReportButton from './ReportButton.jsx'
+import Comment from './Comment.jsx'
 
 // 3단계 높이(미리보기/절반/전체, 뷰포트 비율) — 드래그 핸들을 끌거나 살짝 탭해서 오간다.
 // 마커를 탭해도 지도는 그대로 있고 이 시트만 위로 올라온다(지도 이동/재중심 없음).
@@ -40,8 +43,18 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
       if (!cancelled) setComments(data)
     })
 
-    const unsubscribe = subscribeToComments(post.id, (newComment) => {
-      setComments((prev) => (prev.some((comment) => comment.id === newComment.id) ? prev : [...prev, newComment]))
+    const unsubscribe = subscribeToComments(post.id, {
+      onInsert: (newComment) => {
+        setComments((prev) => (prev.some((comment) => comment.id === newComment.id) ? prev : [...prev, newComment]))
+      },
+      // 신고 누적으로 hidden=true가 되면(다른 사용자 화면 포함) 목록에서 즉시 제거한다.
+      onUpdate: (updatedComment) => {
+        setComments((prev) => (
+          updatedComment.hidden
+            ? prev.filter((comment) => comment.id !== updatedComment.id)
+            : prev.map((comment) => (comment.id === updatedComment.id ? { ...comment, ...updatedComment } : comment))
+        ))
+      },
     })
 
     return () => {
@@ -51,6 +64,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
   }, [post.id])
 
   const isRealtime = categoryHasExpiry(post.category)
+  const isIncident = post.category === '사건사고'
 
   async function handleCommentSubmit(event) {
     event.preventDefault()
@@ -67,6 +81,17 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
       setSubmittingComment(false)
     }
   }
+
+  // Comment.jsx가 반응 토글에 성공하면 그 결과를 여기 comments state에도 낙관적으로 반영한다
+  // (realtime UPDATE로도 곧 같은 값이 오지만, 누른 사람 화면은 그걸 기다리지 않아도 된다).
+  function handleCommentReacted(commentId, emoji, count) {
+    setComments((prev) => prev.map((comment) => (
+      comment.id === commentId ? { ...comment, reactions: { ...comment.reactions, [emoji]: count } } : comment
+    )))
+  }
+
+  // 답글(parent_comment_id 있음)은 한 단계만 지원한다 — top-level 댓글마다 자기 답글 목록을 묶어서 넘긴다.
+  const topLevelComments = comments.filter((comment) => !comment.parent_comment_id)
 
   return (
     <div className="post-detail-backdrop" onClick={onClose}>
@@ -95,6 +120,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
             {post.post_type === 'external' && <span className="post-inquiry-badge">외부작성</span>}
             <span className="post-detail-time">{formatTime(post.updated_at ?? post.created_at)}</span>
             {post.updated_at && <span className="map-infowindow-edited-badge">(수정됨)</span>}
+            <ReportButton targetId={post.id} onReport={() => reportPost(post.id, getReporterSecret())} />
           </div>
 
           {post.title && <h2 className="post-detail-title">{post.title}</h2>}
@@ -104,7 +130,19 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
           <p className="post-detail-content">{post.content}</p>
 
           <div className="post-detail-actions">
-            {isRealtime ? (
+            {isIncident ? (
+              <div className="post-detail-incident-banner">
+                <span className="post-detail-incident-label">🚨 확인 {post.confirm_count}명</span>
+                <button
+                  type="button"
+                  className="post-detail-confirm post-detail-confirm--incident"
+                  disabled={confirming}
+                  onClick={onConfirm}
+                >
+                  {confirming ? '확인 중...' : '아직 그런가요?'}
+                </button>
+              </div>
+            ) : isRealtime ? (
               <button type="button" className="post-detail-confirm" disabled={confirming} onClick={onConfirm}>
                 {confirming ? '확인 중...' : `아직 그런가요? (${post.confirm_count})`}
               </button>
@@ -121,11 +159,14 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
             {comments.length === 0 && <p className="post-detail-comments-empty">첫 댓글을 남겨보세요.</p>}
 
             <ul className="post-detail-comment-list">
-              {comments.map((comment) => (
-                <li key={comment.id} className="post-detail-comment">
-                  <p className="post-detail-comment-content">{comment.content}</p>
-                  <span className="post-detail-comment-time">{formatTime(comment.created_at)}</span>
-                </li>
+              {topLevelComments.map((comment) => (
+                <Comment
+                  key={comment.id}
+                  comment={comment}
+                  replies={comments.filter((reply) => reply.parent_comment_id === comment.id)}
+                  postId={post.id}
+                  onReacted={handleCommentReacted}
+                />
               ))}
             </ul>
 
