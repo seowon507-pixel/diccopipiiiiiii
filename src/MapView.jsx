@@ -6,7 +6,15 @@ import {
   deleteExpiredPins,
   subscribeToPinChanges,
 } from './supabaseClient'
-import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, getElapsedRatio, getPinIconEmoji } from './categories'
+import {
+  CATEGORY_COLORS,
+  DEFAULT_CATEGORY_COLOR,
+  getElapsedRatio,
+  getMarkerIcon,
+  getMarkerTier,
+} from './categories'
+import { clusterByScreenPosition, getClusterTier } from './mapClustering'
+import { reverseGeocodeDong } from './geocode'
 import { getDistanceMeters } from './geo'
 import {
   filterPostsWithinRadius,
@@ -28,6 +36,7 @@ import PlacePreview from './components/PlacePreview.jsx'
 import PlaceCard from './components/PlaceCard.jsx'
 import CommunityFeed from './components/CommunityFeed.jsx'
 import MapSheet from './components/MapSheet.jsx'
+import PostCard from './components/PostCard.jsx'
 
 const KAKAO_MAP_KEY = import.meta.env.VITE_KAKAO_MAP_KEY
 
@@ -38,6 +47,21 @@ const LONG_PRESS_MS = 500
 const MOVE_CANCEL_PX = 10
 const NEAR_EXPIRY_RATIO = 0.7
 const NEAR_EXPIRY_OPACITY = 0.45
+// 이 시간 안에 지도가 뜨지 않으면(도메인 미등록 등 script.onerror로 안 잡히는 실패 포함) 에러로 간주한다.
+const MAP_LOAD_TIMEOUT_MS = 10000
+
+// index.css :root의 --color-accent와 반드시 같은 값으로 유지할 것 — 카카오맵 SVG 마커는
+// base64 data URI라 DOM 밖이라서 CSS 변수를 못 읽기 때문에 여기 hex 리터럴을 원본으로 둔다.
+const ACCENT_COLOR = '#2e7d6b'
+
+// 마커 3단계 크기 — 실시간 알림형(크게)/자유주제 커뮤니티(작게)/클러스터(숫자 원, 개수별로 더 크게).
+// 화면 픽셀 기준 지름(px). placeholder 모드(CSS)와 카카오 SVG 마커 양쪽이 이 값을 공유한다.
+const MARKER_DIAMETER = { large: 40, small: 28 }
+const MARKER_GLYPH_FONT_SIZE = { large: 17, small: 12 }
+const CLUSTER_DIAMETER = { small: 34, medium: 44, large: 54 }
+const CLUSTER_FONT_SIZE = { small: 13, medium: 15, large: 17 }
+// 화면 픽셀 기준 — 이 거리 안에 있는 마커끼리 하나의 숫자 클러스터로 묶는다.
+const CLUSTER_CELL_PX = 46
 
 function isTouchDevice() {
   return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
@@ -67,13 +91,50 @@ function svgToDataUrl(svg) {
   return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
 }
 
-function createKakaoMarkerImage(kakao, color, emoji) {
-  const emojiText = emoji
-    ? `<text x="18" y="24" font-size="17" text-anchor="middle">${emoji}</text>`
+// 모든 마커/클러스터가 공유하는 은은한 그림자(각 SVG는 독립 문서라 id가 겹쳐도 안전하다).
+const MARKER_SHADOW_DEF = `<filter id="marker-shadow" x="-60%" y="-60%" width="220%" height="220%">`
+  + `<feDropShadow dx="0" dy="1" stdDeviation="1.3" flood-color="#000000" flood-opacity="0.28"/></filter>`
+
+// 게시글 마커 — tier(large/small)로 크기를, glyph로 카테고리 아이콘(색약 대응)을 표시하고,
+// selected면 포인트 컬러 테두리로 강조한다(그림자는 항상 은은한 톤 유지).
+function createKakaoMarkerImage(kakao, { color, glyph, tier = 'small', selected = false }) {
+  const diameter = MARKER_DIAMETER[tier]
+  const radius = diameter / 2 - 2
+  const ringExtra = selected ? 4 : 0
+  const size = diameter + ringExtra + 6
+  const center = size / 2
+  const fontSize = MARKER_GLYPH_FONT_SIZE[tier]
+
+  const ring = selected
+    ? `<circle cx="${center}" cy="${center}" r="${radius + 3}" fill="none" stroke="${ACCENT_COLOR}" stroke-width="3"/>`
     : ''
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">`
-    + `<circle cx="18" cy="18" r="14" fill="${color}" stroke="#fff" stroke-width="2"/>${emojiText}</svg>`
-  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(36, 36))
+  const glyphText = glyph
+    ? `<text x="${center}" y="${center + fontSize * 0.35}" font-size="${fontSize}" text-anchor="middle">${glyph}</text>`
+    : ''
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">`
+    + `<defs>${MARKER_SHADOW_DEF}</defs>`
+    + `<g filter="url(#marker-shadow)"><circle cx="${center}" cy="${center}" r="${radius}" fill="${color}" stroke="#fff" stroke-width="2"/></g>`
+    + `${ring}${glyphText}</svg>`
+
+  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(size, size))
+}
+
+// 마커가 겹칠 때 대신 보여주는 숫자 클러스터 원 — 포인트 컬러 1개로 통일, 개수별로 3단계 크기.
+function createKakaoClusterMarkerImage(kakao, count) {
+  const tier = getClusterTier(count)
+  const diameter = CLUSTER_DIAMETER[tier]
+  const radius = diameter / 2 - 2
+  const size = diameter + 6
+  const center = size / 2
+  const fontSize = CLUSTER_FONT_SIZE[tier]
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">`
+    + `<defs>${MARKER_SHADOW_DEF}</defs>`
+    + `<g filter="url(#marker-shadow)"><circle cx="${center}" cy="${center}" r="${radius}" fill="${ACCENT_COLOR}" stroke="#fff" stroke-width="2"/></g>`
+    + `<text x="${center}" y="${center + fontSize * 0.35}" font-size="${fontSize}" font-weight="700" fill="#fff" text-anchor="middle">${count}</text></svg>`
+
+  return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(size, size))
 }
 
 // 아직 글이 없는 "빈 핀" 전용 마커 이미지(점선 원 + 📌).
@@ -151,7 +212,7 @@ function placeholderPointToLatLng(container, clientX, clientY, bounds) {
 }
 
 function isMarkerOrInfoWindowTarget(target) {
-  return Boolean(target?.closest?.('.map-marker, .map-pin, .place-search, .map-top-bar'))
+  return Boolean(target?.closest?.('.map-marker, .map-cluster-marker, .map-pin, .place-search, .map-header, .map-side-rail, .map-cluster-popover'))
 }
 
 // 지도 렌더링 전담. 게시글 목록/위치/카테고리 필터는 App에서 props로 받아 커뮤니티 탭과 공유한다.
@@ -164,6 +225,7 @@ function MapView({
   activeCategories,
   onToggleCategory,
   onSelectPost,
+  selectedPostId,
   onOpenCommunity,
   onOpenCreateModal,
 }) {
@@ -193,8 +255,18 @@ function MapView({
   const [creatingPin, setCreatingPin] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
-  const [kakaoReady, setKakaoReady] = useState(false)
+  // 카카오맵 스크립트/초기화 진행 상태 — 'loading'(불러오는 중) / 'ready'(정상) / 'error'(도메인 미등록,
+  // 네트워크 오류 등으로 실패). placeholder 모드(KAKAO_MAP_KEY 없음)에서는 쓰이지 않는다.
+  const [mapStatus, setMapStatus] = useState(() => (KAKAO_MAP_KEY ? 'loading' : 'ready'))
+  const [mapRetryToken, setMapRetryToken] = useState(0)
   const [placeholderSize, setPlaceholderSize] = useState({ width: 0, height: 0 })
+  // 지도를 드래그/확대·축소할 때마다 증가시켜서 마커 클러스터링을 다시 계산하게 만드는 트리거.
+  // 값 자체는 안 쓰고 의존성 배열에만 넣는다(뷰포트/줌 레벨이 바뀌면 화면 픽셀 좌표가 달라지므로).
+  const [viewportTick, setViewportTick] = useState(0)
+  // placeholder 모드는 실제 줌이 없어서 클러스터를 눌러도 확대로 안 풀리니, 대신 묶인 글 목록을 보여준다.
+  const [openClusterPosts, setOpenClusterPosts] = useState(null)
+  // 지도 상단 고정 헤더에 표시할 동네명(동 단위). 카카오 서비스가 없는 placeholder 모드에서는 null로 남는다.
+  const [neighborhoodName, setNeighborhoodName] = useState(null)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -248,51 +320,80 @@ function MapView({
   const visiblePins = pinsVisible ? nearbyPins : []
 
   // 카카오맵 초기화. 딱 한 번만 생성하고, 이후 위치 갱신은 반경원만 옮긴다.
+  // 도메인 미등록처럼 script.onerror로 안 잡히는 실패(스크립트는 로드되지만 지도가 안 뜨는 경우)도
+  // 있어서, 정해진 시간 안에 성공/실패 어느 쪽으로도 결론나지 않으면 타임아웃으로 에러 처리한다.
   useEffect(() => {
     if (!KAKAO_MAP_KEY || !mapContainerRef.current || !userLocation || kakaoMapRef.current) return
 
     let cancelled = false
+    setMapStatus('loading')
 
-    loadKakaoMapScript(KAKAO_MAP_KEY).then((kakao) => {
+    const timeoutId = setTimeout(() => {
       if (cancelled || kakaoMapRef.current) return
+      cancelled = true
+      setMapStatus('error')
+    }, MAP_LOAD_TIMEOUT_MS)
 
-      const map = new kakao.maps.Map(mapContainerRef.current, {
-        center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
-        level: 4,
-      })
-      kakaoMapRef.current = map
-      setKakaoReady(true)
+    loadKakaoMapScript(KAKAO_MAP_KEY)
+      .then((kakao) => {
+        if (cancelled || kakaoMapRef.current) return
+        clearTimeout(timeoutId)
 
-      myLocationCircleRef.current = new kakao.maps.Circle({
-        center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
-        radius: EXTERNAL_DISTANCE_METERS,
-        strokeWeight: 1.5,
-        strokeColor: '#2e7d6b',
-        strokeOpacity: 0.6,
-        fillColor: '#2e7d6b',
-        fillOpacity: 0.08,
-      })
-      myLocationCircleRef.current.setMap(map)
-
-      myLocationMarkerRef.current = new kakao.maps.Marker({
-        position: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
-        map,
-        image: createKakaoMyLocationMarkerImage(kakao),
-        zIndex: 10,
-      })
-
-      // 데스크톱(마우스)만 클릭으로 장소 미리보기를 연다. 모바일은 아래 터치 핸들러의 롱프레스로 처리한다.
-      if (!isTouchDevice()) {
-        kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
-          setPreviewPosition({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() })
+        const map = new kakao.maps.Map(mapContainerRef.current, {
+          center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+          level: 4,
         })
-      }
-    })
+        kakaoMapRef.current = map
+        setMapStatus('ready')
+
+        myLocationCircleRef.current = new kakao.maps.Circle({
+          center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+          radius: EXTERNAL_DISTANCE_METERS,
+          strokeWeight: 1.5,
+          strokeColor: '#2e7d6b',
+          strokeOpacity: 0.6,
+          fillColor: '#2e7d6b',
+          fillOpacity: 0.08,
+        })
+        myLocationCircleRef.current.setMap(map)
+
+        myLocationMarkerRef.current = new kakao.maps.Marker({
+          position: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
+          map,
+          image: createKakaoMyLocationMarkerImage(kakao),
+          zIndex: 10,
+        })
+
+        // 데스크톱(마우스)만 클릭으로 장소 미리보기를 연다. 모바일은 아래 터치 핸들러의 롱프레스로 처리한다.
+        if (!isTouchDevice()) {
+          kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
+            setPreviewPosition({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() })
+          })
+        }
+
+        // 드래그/확대·축소가 끝날 때마다 마커 클러스터링을 다시 계산한다(뷰포트 밖 마커 제외 포함).
+        kakao.maps.event.addListener(map, 'idle', () => setViewportTick((tick) => tick + 1))
+      })
+      .catch((err) => {
+        console.error('[MapView] 카카오맵 스크립트 로드 실패', err)
+        if (cancelled) return
+        cancelled = true
+        clearTimeout(timeoutId)
+        setMapStatus('error')
+      })
 
     return () => {
       cancelled = true
+      clearTimeout(timeoutId)
     }
-  }, [userLocation])
+  }, [userLocation, mapRetryToken])
+
+  // 에러 화면의 "다시 시도" 버튼 — 실패했던 스크립트 로드부터 다시 시도한다.
+  function handleRetryMap() {
+    kakaoMapRef.current = null
+    setMapStatus('loading')
+    setMapRetryToken((token) => token + 1)
+  }
 
   // 위치가 갱신될 때마다 반경원/내 위치 점만 옮긴다(지도는 다시 만들지 않음) — 내 위치 실시간 동기화
   useEffect(() => {
@@ -303,22 +404,73 @@ function MapView({
     myLocationMarkerRef.current?.setPosition(position)
   }, [userLocation])
 
-  // nearbyPosts가 바뀔 때마다 카카오맵 마커를 다시 그린다.
+  // 지도 상단 고정 헤더에 보여줄 동네명(동 단위) 조회 — 카카오 지도가 준비됐고 위치가 있을 때만.
+  useEffect(() => {
+    if (mapStatus !== 'ready' || !userLocation) return
+    let cancelled = false
+    reverseGeocodeDong(window.kakao, userLocation.lat, userLocation.lng).then((dong) => {
+      if (!cancelled) setNeighborhoodName(dong)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [mapStatus, userLocation])
+
+  // nearbyPosts/뷰포트(드래그·줌)/선택 상태가 바뀔 때마다 카카오맵 마커를 다시 그린다.
+  // 성능을 위해 현재 화면(bounds) 밖 마커는 애초에 만들지 않고, 화면 픽셀 거리 기준으로
+  // 겹치는 마커는 숫자 클러스터 하나로 합친다(확대하면 다음 idle에서 다시 계산되어 풀린다).
   useEffect(() => {
     if (!KAKAO_MAP_KEY || !kakaoMapRef.current) return
     const kakao = window.kakao
+    const map = kakaoMapRef.current
+    const bounds = map.getBounds()
+    const projection = map.getProjection()
+
+    const visiblePosts = nearbyPosts.filter((post) => (
+      bounds.contain(new kakao.maps.LatLng(post.lat, post.lng))
+    ))
+
+    const projected = visiblePosts.map((post) => {
+      const point = projection.containerPointFromCoords(new kakao.maps.LatLng(post.lat, post.lng))
+      return { item: post, x: point.x, y: point.y }
+    })
+
+    const clusters = clusterByScreenPosition(projected, CLUSTER_CELL_PX)
 
     markersRef.current.forEach((marker) => marker.setMap(null))
-    markersRef.current = nearbyPosts.map((post) => {
+    markersRef.current = clusters.map((cluster) => {
+      if (cluster.type === 'cluster') {
+        const center = cluster.items.reduce(
+          (acc, post) => ({ lat: acc.lat + post.lat / cluster.count, lng: acc.lng + post.lng / cluster.count }),
+          { lat: 0, lng: 0 },
+        )
+        const marker = new kakao.maps.Marker({
+          position: new kakao.maps.LatLng(center.lat, center.lng),
+          map,
+          image: createKakaoClusterMarkerImage(kakao, cluster.count),
+          zIndex: 5,
+        })
+        // 클러스터를 누르면 그 위치를 중심으로 확대한다 — 다음 idle 이벤트에서 재계산되어
+        // 개별 마커로 펼쳐지거나, 여전히 겹치면 더 작은 클러스터로 다시 묶인다.
+        kakao.maps.event.addListener(marker, 'click', () => {
+          const level = map.getLevel()
+          map.setLevel(Math.max(level - 2, 1), { anchor: marker.getPosition() })
+        })
+        return marker
+      }
+
+      const post = cluster.item
       const marker = new kakao.maps.Marker({
         position: new kakao.maps.LatLng(post.lat, post.lng),
-        map: kakaoMapRef.current,
-        image: createKakaoMarkerImage(
-          kakao,
-          CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
-          getPinIconEmoji(post.icon),
-        ),
+        map,
+        image: createKakaoMarkerImage(kakao, {
+          color: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
+          glyph: getMarkerIcon(post),
+          tier: getMarkerTier(post.category),
+          selected: post.id === selectedPostId,
+        }),
         opacity: getMarkerOpacity(post, now),
+        zIndex: post.id === selectedPostId ? 8 : 4,
       })
 
       kakao.maps.event.addListener(marker, 'click', () => {
@@ -327,7 +479,7 @@ function MapView({
 
       return marker
     })
-  }, [nearbyPosts, now, onSelectPost])
+  }, [nearbyPosts, now, onSelectPost, selectedPostId, viewportTick])
 
   // visiblePins가 바뀔 때마다 빈 핀 마커를 다시 그린다(pinsVisible이 꺼져 있으면 빈 배열이라 전부 지워진다).
   useEffect(() => {
@@ -548,7 +700,7 @@ function MapView({
   if (locationLoading) {
     return (
       <div className="map-placeholder" role="status" aria-label="위치 확인 중">
-        <span className="map-placeholder-label">위치 확인 중...</span>
+        <span className="map-placeholder-label">위치를 확인하고 있어요...</span>
       </div>
     )
   }
@@ -567,32 +719,56 @@ function MapView({
   const myCircleDiameterPx = Math.min(placeholderSize.width, placeholderSize.height)
     * (EXTERNAL_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
 
+  // placeholder 모드는 실제 줌이 없어서 카카오 모드처럼 화면 픽셀 좌표로 옮겨 같은 클러스터링
+  // 함수를 재사용한다(퍼센트 위치 → 실측 컨테이너 픽셀로 환산, 중복 로직 만들지 않음).
+  const placeholderClusters = (placeholderSize.width > 0 && placeholderSize.height > 0)
+    ? clusterByScreenPosition(
+        nearbyPosts
+          .map((post) => {
+            const position = placeholderPositions.get(post.id)
+            if (!position) return null
+            return {
+              item: post,
+              x: (position.x / 100) * placeholderSize.width,
+              y: (position.y / 100) * placeholderSize.height,
+            }
+          })
+          .filter(Boolean),
+        CLUSTER_CELL_PX,
+      )
+    : []
+
   return (
     <>
       {locationBanner}
       <div className="map-view">
-        <div className="map-top-bar">
+        <div className="map-header">
+          {neighborhoodName && <span className="map-header-neighborhood">📍 {neighborhoodName}</span>}
+          {mapStatus === 'ready' && (
+            <PlaceSearch
+              kakao={window.kakao}
+              kakaoMap={kakaoMapRef.current}
+              onWriteHere={(lat, lng) => onOpenCreateModal(lat, lng)}
+              onSelectPlace={handleSelectSearchPlace}
+            />
+          )}
+        </div>
+
+        <div className="map-side-rail">
           <CategoryFilter activeCategories={activeCategories} onToggle={onToggleCategory} />
           <button
             type="button"
             className={`pin-toggle-button${pinsVisible ? ' active' : ''}`}
             aria-pressed={pinsVisible}
+            aria-label={pinsVisible ? '핀 숨기기' : '핀 보기'}
             onClick={() => {
               setPinsVisible((prev) => !prev)
               setSelectedPinId(null)
             }}
           >
-            📌 핀 {pinsVisible ? '숨기기' : '보기'}
+            📌
           </button>
         </div>
-        {kakaoReady && (
-          <PlaceSearch
-            kakao={window.kakao}
-            kakaoMap={kakaoMapRef.current}
-            onWriteHere={(lat, lng) => onOpenCreateModal(lat, lng)}
-            onSelectPlace={handleSelectSearchPlace}
-          />
-        )}
 
         {!KAKAO_MAP_KEY ? (
           <div
@@ -617,18 +793,48 @@ function MapView({
             )}
             <div className="my-location-dot" aria-hidden="true" />
 
-            {nearbyPosts.map((post) => {
-              const position = placeholderPositions.get(post.id)
-              if (!position) return null
+            {placeholderClusters.map((cluster) => {
+              const leftPct = (cluster.x / placeholderSize.width) * 100
+              const topPct = (cluster.y / placeholderSize.height) * 100
+
+              if (cluster.type === 'cluster') {
+                const tier = getClusterTier(cluster.count)
+                const diameter = CLUSTER_DIAMETER[tier]
+
+                return (
+                  <button
+                    key={`cluster-${cluster.items[0].id}`}
+                    type="button"
+                    className="map-cluster-marker"
+                    style={{
+                      left: `${leftPct}%`,
+                      top: `${topPct}%`,
+                      width: diameter,
+                      height: diameter,
+                      fontSize: CLUSTER_FONT_SIZE[tier],
+                    }}
+                    aria-label={`게시글 ${cluster.count}개 묶음`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setOpenClusterPosts(cluster.items)
+                    }}
+                  >
+                    {cluster.count}
+                  </button>
+                )
+              }
+
+              const post = cluster.item
+              const tier = getMarkerTier(post.category)
 
               return (
                 <button
                   key={post.id}
                   type="button"
-                  className="map-marker"
+                  className={`map-marker map-marker--${tier}${post.id === selectedPostId ? ' selected' : ''}`}
                   style={{
-                    left: `${position.x}%`,
-                    top: `${position.y}%`,
+                    left: `${leftPct}%`,
+                    top: `${topPct}%`,
                     backgroundColor: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
                     opacity: getMarkerOpacity(post, now),
                   }}
@@ -638,7 +844,7 @@ function MapView({
                     onSelectPost(post.id)
                   }}
                 >
-                  {getPinIconEmoji(post.icon)}
+                  {getMarkerIcon(post)}
                 </button>
               )
             })}
@@ -665,15 +871,33 @@ function MapView({
             })}
           </div>
         ) : (
-          <div
-            ref={mapContainerRef}
-            className="map-container"
-            onTouchStart={handleKakaoTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onTouchCancel={handleTouchEnd}
-            onContextMenu={(event) => event.preventDefault()}
-          />
+          <>
+            <div
+              ref={mapContainerRef}
+              className="map-container"
+              onTouchStart={handleKakaoTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
+              onContextMenu={(event) => event.preventDefault()}
+            />
+
+            {mapStatus === 'loading' && (
+              <div className="map-loading-overlay" role="status" aria-label="지도 불러오는 중">
+                <span className="map-loading-spinner" aria-hidden="true" />
+                <span>지도를 불러오고 있어요...</span>
+              </div>
+            )}
+
+            {mapStatus === 'error' && (
+              <div className="map-error-overlay" role="alert">
+                <p>어, 지도가 잘 안 불러와지네요.<br />새로고침 한번 해볼까요?</p>
+                <button type="button" className="map-error-retry-button" onClick={handleRetryMap}>
+                  다시 시도
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {placeCommunityOpen && searchedPlace && (
@@ -699,6 +923,7 @@ function MapView({
               activeCategories={activeCategories}
               onToggleCategory={onToggleCategory}
               onSelectPost={onSelectPost}
+              fallbackPosts={activePosts}
             />
           </div>
         )}
@@ -709,6 +934,7 @@ function MapView({
             activeCategories={activeCategories}
             onToggleCategory={onToggleCategory}
             onSelectPost={onSelectPost}
+            fallbackPosts={activePosts}
           />
         )}
       </div>
@@ -729,6 +955,36 @@ function MapView({
           onViewCommunity={() => setPlaceCommunityOpen(true)}
           onClose={closePlaceCard}
         />
+      )}
+
+      {openClusterPosts && (
+        <div className="map-cluster-popover-backdrop" onClick={() => setOpenClusterPosts(null)}>
+          <div className="map-cluster-popover" onClick={(event) => event.stopPropagation()}>
+            <div className="map-cluster-popover-header">
+              <p className="map-cluster-popover-title">이 근처 글 {openClusterPosts.length}개</p>
+              <button
+                type="button"
+                className="map-cluster-popover-close"
+                aria-label="닫기"
+                onClick={() => setOpenClusterPosts(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className="map-cluster-popover-list">
+              {openClusterPosts.map((post) => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  onClick={() => {
+                    setOpenClusterPosts(null)
+                    onSelectPost(post.id)
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {selectedPin && (
