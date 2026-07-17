@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
 import { CATEGORIES, CATEGORY_COLORS } from '../categories'
 import PostCard from './PostCard.jsx'
+import TrendingFallback from './TrendingFallback.jsx'
 
 const SORT_OPTIONS = [
   { key: 'latest', label: '최신순' },
   { key: 'likes', label: '추천 많은순' },
 ]
 
-function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost }) {
+// fallbackPosts: 이 목록(posts) 자체가 비어 있을 때 대신 보여줄 위치 무관 인기 콘텐츠(TrendingFallback).
+function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts = [] }) {
   const [searchText, setSearchText] = useState('')
   const [sortKey, setSortKey] = useState('latest')
 
@@ -67,10 +69,18 @@ function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost
       </div>
 
       <div className="community-list">
-        {filteredPosts.length === 0 && <p className="community-empty">표시할 게시글이 없어요.</p>}
-        {filteredPosts.map((post) => (
-          <PostCard key={post.id} post={post} onClick={() => onSelectPost(post.id)} />
-        ))}
+        {posts.length === 0 ? (
+          <div className="community-empty-state">
+            <p className="community-empty">이 동네엔 아직 글이 없어요. 첫 글을 남겨보는 건 어때요?</p>
+            <TrendingFallback posts={fallbackPosts} onSelectPost={onSelectPost} />
+          </div>
+        ) : filteredPosts.length === 0 ? (
+          <p className="community-empty">앗, 조건에 맞는 글을 못 찾았어요. 검색어나 카테고리를 바꿔볼까요?</p>
+        ) : (
+          filteredPosts.map((post) => (
+            <PostCard key={post.id} post={post} onClick={() => onSelectPost(post.id)} />
+          ))
+        )}
       </div>
     </div>
   )

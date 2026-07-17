@@ -32,6 +32,28 @@ export function filterPostsWithinRadius(posts, center, radiusMeters) {
   return posts.filter((post) => getDistanceMeters(center.lat, center.lng, post.lat, post.lng) <= radiusMeters)
 }
 
+// 우리 동네에 글이 없을 때 대신 보여줄 콘텐츠 — 위치와 무관하게 앱 전체(activePosts)에서 뽑는다.
+// CommunityFeed/CommunityPage의 빈 상태 화면이 공유한다 — 중복 정의 금지.
+export function getTopWaitingSpots(posts, limit = 3) {
+  return posts
+    .filter((post) => post.category === '웨이팅' && post.confirm_count > 0)
+    .sort((a, b) => b.confirm_count - a.confirm_count)
+    .slice(0, limit)
+}
+
+export function getTopLikedPosts(posts, limit = 5) {
+  const liked = posts.filter((post) => (post.likes_count ?? 0) > 0)
+  const source = liked.length > 0 ? liked : posts
+
+  return [...source]
+    .sort((a, b) => (
+      liked.length > 0
+        ? (b.likes_count ?? 0) - (a.likes_count ?? 0)
+        : new Date(b.created_at) - new Date(a.created_at)
+    ))
+    .slice(0, limit)
+}
+
 // 같은 건물로 볼 만한 거리(m). 이 안에 있으면 같은 그룹으로 묶는다.
 const BUILDING_CLUSTER_RADIUS_METERS = 30
 

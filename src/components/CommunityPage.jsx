@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
+import TrendingFallback from './TrendingFallback.jsx'
 import { groupPostsByBuilding } from '../usePosts'
 
 // 지도와 별도의 전체화면 커뮤니티 탭. 표시 데이터(posts)는 App에서 지도 탭과 공유한다(내 주변 500m).
 // 글 목록을 바로 보여주지 않고, 먼저 건물 단위로 묶어 보여준 뒤 건물을 선택해야 그 건물의 글이 나온다.
-function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost }) {
+// fallbackPosts(App의 activePosts, 위치 무관)는 우리 동네에 글이 하나도 없을 때 대체 콘텐츠로 쓴다.
+function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts = [] }) {
   const [selectedBuilding, setSelectedBuilding] = useState(null)
 
   const buildings = useMemo(() => groupPostsByBuilding(posts), [posts])
@@ -23,6 +25,7 @@ function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost
           activeCategories={activeCategories}
           onToggleCategory={onToggleCategory}
           onSelectPost={onSelectPost}
+          fallbackPosts={fallbackPosts}
         />
       </div>
     )
@@ -32,7 +35,14 @@ function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost
     <div className="community-page">
       <h1 className="community-page-title">커뮤니티</h1>
       <p className="community-page-subtitle">내 주변 500m 이내 건물이에요. 눌러서 글을 봐요.</p>
-      <BuildingList buildings={buildings} onSelect={setSelectedBuilding} />
+      {buildings.length === 0 ? (
+        <div className="community-empty-state">
+          <p className="community-empty">이 동네엔 아직 글이 없어요. 첫 글을 남겨보는 건 어때요?</p>
+          <TrendingFallback posts={fallbackPosts} onSelectPost={onSelectPost} />
+        </div>
+      ) : (
+        <BuildingList buildings={buildings} onSelect={setSelectedBuilding} />
+      )}
     </div>
   )
 }
