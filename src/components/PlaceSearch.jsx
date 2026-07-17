@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 // 카카오맵이 활성화된 경우에만 사용하는 장소/건물 검색. kakao.maps.services 라이브러리가 필요하다.
-function PlaceSearch({ kakao, kakaoMap, onWriteHere }) {
+function PlaceSearch({ kakao, kakaoMap, onWriteHere, onSelectPlace }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [open, setOpen] = useState(false)
@@ -22,6 +22,15 @@ function PlaceSearch({ kakao, kakaoMap, onWriteHere }) {
     const position = new kakao.maps.LatLng(place.y, place.x)
     kakaoMap.setCenter(position)
     kakaoMap.setLevel(4)
+    onSelectPlace?.({
+      lat: Number(place.y),
+      lng: Number(place.x),
+      name: place.place_name,
+      address: place.road_address_name || place.address_name,
+      category: place.category_name ? place.category_name.split(' > ').pop() : null,
+      phone: place.phone || null,
+      placeUrl: place.place_url || null,
+    })
     setOpen(false)
   }
 
