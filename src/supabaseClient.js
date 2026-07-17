@@ -265,6 +265,42 @@ export function subscribeToChatMessages(onInsert) {
   }
 }
 
+// 웹 푸시 구독 + 알림 설정(관심 지역/키워드/조용한 시간)을 device_secret 기준으로 저장/갱신한다.
+// device_secret은 로그인 없이 이 브라우저를 식별하는 값(src/notifications.js가 localStorage에 보관).
+export async function upsertPushSubscription({
+  deviceSecret,
+  endpoint,
+  p256dh,
+  auth,
+  interestAreas,
+  keywords,
+  quietStart,
+  quietEnd,
+}) {
+  const { error } = await supabase.rpc('upsert_push_subscription', {
+    p_device_secret: deviceSecret,
+    p_endpoint: endpoint,
+    p_p256dh: p256dh,
+    p_auth: auth,
+    p_interest_areas: interestAreas,
+    p_keywords: keywords,
+    p_quiet_start: quietStart,
+    p_quiet_end: quietEnd,
+  })
+
+  if (error) throw error
+}
+
+// 알림을 끌 때 서버에 저장된 구독을 지운다.
+export async function deletePushSubscription(deviceSecret) {
+  const { data, error } = await supabase.rpc('delete_push_subscription', {
+    p_device_secret: deviceSecret,
+  })
+
+  if (error) throw error
+  return data // true/false
+}
+
 // posts 테이블의 등록(INSERT)/수정(UPDATE)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
 export function subscribeToPostChanges({ onInsert, onUpdate, onDelete }) {
   const channel = supabase

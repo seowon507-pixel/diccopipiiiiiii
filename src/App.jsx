@@ -193,6 +193,7 @@ function App() {
             activeCategories={activeCategories}
             onToggleCategory={toggleCategory}
             onSelectPost={setSelectedPostId}
+            selectedPostId={selectedPostId}
             onOpenCommunity={() => setActiveTab('community')}
             onOpenCreateModal={openCreateModal}
           />
@@ -204,6 +205,7 @@ function App() {
             activeCategories={activeCategories}
             onToggleCategory={toggleCategory}
             onSelectPost={setSelectedPostId}
+            fallbackPosts={activePosts}
           />
         )}
 
@@ -216,6 +218,7 @@ function App() {
             onToggleCategory={toggleCategory}
             onSelectPost={setSelectedPostId}
             onOpenCreateModal={openCreateModal}
+            userLocation={userLocation}
           />
         )}
       </div>

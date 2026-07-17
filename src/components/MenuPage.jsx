@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
+import NotificationSettings from './NotificationSettings.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
-function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onOpenCreateModal }) {
+function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onOpenCreateModal, userLocation }) {
   const [view, setView] = useState('home')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -80,7 +81,24 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                 <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
               </span>
             </button>
+            <button type="button" className="menu-card" onClick={() => setView('notifications')}>
+              <span className="menu-card-icon">🔔</span>
+              <span className="menu-card-text">
+                <span className="menu-card-label">알림 설정</span>
+                <span className="menu-card-desc">관심 지역·키워드에 새 글 오면 알려드려요</span>
+              </span>
+            </button>
           </div>
+        </>
+      )}
+
+      {view === 'notifications' && (
+        <>
+          <div className="menu-page-header">
+            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
+            <h1 className="menu-page-title">알림 설정</h1>
+          </div>
+          <NotificationSettings userLocation={userLocation} />
         </>
       )}
 
@@ -95,6 +113,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
             activeCategories={activeCategories}
             onToggleCategory={onToggleCategory}
             onSelectPost={onSelectPost}
+            fallbackPosts={posts}
           />
         </>
       )}
@@ -132,7 +151,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
 
               {searched && (
                 <div className="place-search-results menu-location-results">
-                  {results.length === 0 && <p className="place-search-empty">검색 결과가 없어요.</p>}
+                  {results.length === 0 && <p className="place-search-empty">검색 결과가 없어요. 다른 키워드로 찾아볼까요?</p>}
                   {results.map((place) => (
                     <button
                       key={place.id}
@@ -178,6 +197,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                 activeCategories={activeCategories}
                 onToggleCategory={onToggleCategory}
                 onSelectPost={onSelectPost}
+                fallbackPosts={posts}
               />
             </>
           )}
