@@ -3,11 +3,18 @@ import {
   getPins,
   createPin,
   deletePin,
+  deleteExpiredPins,
   subscribeToPinChanges,
 } from './supabaseClient'
 import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, getElapsedRatio, getPinIconEmoji } from './categories'
 import { getDistanceMeters } from './geo'
-import { filterPostsWithinRadius, COMMUNITY_RADIUS_METERS, EXTERNAL_DISTANCE_METERS } from './usePosts'
+import {
+  filterPostsWithinRadius,
+  filterMapVisiblePosts,
+  COMMUNITY_RADIUS_METERS,
+  EXTERNAL_DISTANCE_METERS,
+  MAP_VISIBLE_MINUTES,
+} from './usePosts'
 import {
   generateOwnerSecret,
   savePinOwnership,
@@ -188,13 +195,23 @@ function MapView({
   const [placeholderSize, setPlaceholderSize] = useState({ width: 0, height: 0 })
 
   useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 30 * 1000)
+    const interval = setInterval(() => {
+      setNow(Date.now())
+      // 만료된(작성 후 MAP_VISIBLE_MINUTES 지난) 빈 핀을 서버에서 실제로 정리한다.
+      // 소유자 확인 없이 나이만 보는 멱등 연산이라 접속한 아무 클라이언트나 호출해도 안전하다.
+      deleteExpiredPins(MAP_VISIBLE_MINUTES).catch((err) => {
+        console.error('[MapView] 만료 핀 정리 실패', err)
+      })
+    }, 30 * 1000)
     return () => clearInterval(interval)
   }, [])
 
   // 아직 글이 없는 "빈 핀" 목록도 함께 불러온다.
   useEffect(() => {
     let cancelled = false
+    deleteExpiredPins(MAP_VISIBLE_MINUTES).catch((err) => {
+      console.error('[MapView] 만료 핀 정리 실패', err)
+    })
     getPins().then((data) => {
       if (!cancelled) setPins(data)
     })
@@ -217,9 +234,13 @@ function MapView({
     return unsubscribe
   }, [])
 
-  // 빈 핀도 게시글과 동일하게 반경 1km 이내만 지도에 표시한다.
+  // 빈 핀도 게시글과 동일하게 반경 1km 이내만 지도에 표시하고, 작성 후 MAP_VISIBLE_MINUTES(기본 1시간)가
+  // 지나면 실제 삭제(위 deleteExpiredPins)를 기다리지 않고 클라이언트에서 먼저 숨긴다.
   const nearbyPins = userLocation
-    ? pins.filter((pin) => getDistanceMeters(userLocation.lat, userLocation.lng, pin.lat, pin.lng) <= 1000)
+    ? filterMapVisiblePosts(
+        pins.filter((pin) => getDistanceMeters(userLocation.lat, userLocation.lng, pin.lat, pin.lng) <= 1000),
+        now,
+      )
     : []
 
   // 카카오맵 초기화. 딱 한 번만 생성하고, 이후 위치 갱신은 반경원만 옮긴다.

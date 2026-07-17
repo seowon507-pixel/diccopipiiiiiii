@@ -206,11 +206,69 @@ textarea {
   color: #999;
 }
 
+/* 커뮤니티 탭 - 건물 목록 (건물 선택 전) */
+
+.building-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.building-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #eee;
+  border-radius: 16px;
+  padding: 14px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.building-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.building-card-name {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: #222;
+}
+
+.building-card-address {
+  font-size: 0.8rem;
+  color: #999;
+}
+
+.building-card-count {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: #2e7d6b;
+  font-weight: 600;
+}
+
 .menu-location-notice {
   font-size: 0.85rem;
   color: #999;
   text-align: center;
   padding: 24px 0;
+}
+
+.menu-location-buildings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.menu-location-buildings-label {
+  font-size: 0.78rem;
+  color: #999;
+  font-weight: 600;
 }
 
 .menu-location-search {

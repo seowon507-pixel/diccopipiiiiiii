@@ -84,6 +84,17 @@ export async function deletePin(id, ownerSecret) {
   return data // true/false
 }
 
+// 작성 후 일정 시간이 지난 빈 핀을 서버에서 실제로 지운다(소유자 확인 없이, 나이만 본다).
+// 접속한 아무 클라이언트나 주기적으로 호출해도 안전하다 — 이미 만료된 행만 지우는 멱등 연산.
+// 삭제되면 pins-realtime DELETE 이벤트로 다른 사용자 화면에서도 즉시 사라진다.
+export async function deleteExpiredPins(olderThanMinutes) {
+  const { error } = await supabase.rpc('delete_expired_pins', {
+    p_older_than_minutes: olderThanMinutes,
+  })
+
+  if (error) throw error
+}
+
 // pins 테이블의 등록(INSERT)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
 export function subscribeToPinChanges({ onInsert, onDelete }) {
   const channel = supabase

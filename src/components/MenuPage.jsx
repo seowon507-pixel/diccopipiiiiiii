@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
-import { filterPostsWithinRadius, COMMUNITY_RADIUS_METERS } from '../usePosts'
+import BuildingList from './BuildingList.jsx'
+import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
@@ -12,6 +13,9 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
   const [selectedPlace, setSelectedPlace] = useState(null)
 
   const kakaoReady = Boolean(window.kakao?.maps?.services)
+  // 이미 글이 있는 건물부터 먼저 보여준다(거리 제한 없음) — 건물을 눌러야 그 자리의
+  // 커뮤니티(피드+글쓰기)로 들어간다. 새 장소를 찾고 싶으면 아래 검색을 쓴다.
+  const buildings = useMemo(() => groupPostsByBuilding(posts), [posts])
 
   function handleOpenLocation() {
     setView('location')
@@ -39,6 +43,16 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
       lng: Number(place.x),
       name: place.place_name,
       address: place.road_address_name || place.address_name,
+    })
+  }
+
+  // 건물 목록에서 고르면, BuildingList가 이미 조회해둔 이름/주소를 그대로 받아 쓴다(재조회 안 함).
+  function handleSelectBuilding(building, info) {
+    setSelectedPlace({
+      lat: building.lat,
+      lng: building.lng,
+      name: info?.name ?? null,
+      address: info?.address ?? null,
     })
   }
 
@@ -92,12 +106,20 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
             <h1 className="menu-page-title">위치·건물별 커뮤니티</h1>
           </div>
 
+          {!selectedPlace && buildings.length > 0 && (
+            <div className="menu-location-buildings">
+              <p className="menu-location-buildings-label">글이 있는 건물</p>
+              <BuildingList buildings={buildings} onSelect={handleSelectBuilding} />
+            </div>
+          )}
+
           {!kakaoReady && (
             <p className="menu-location-notice">지도 탭을 먼저 한 번 열어야 장소 검색을 쓸 수 있어요.</p>
           )}
 
           {kakaoReady && !selectedPlace && (
             <div className="menu-location-search">
+              <p className="menu-location-buildings-label">다른 장소 찾기</p>
               <form className="place-search-form menu-location-form" onSubmit={handleSearch}>
                 <input
                   className="place-search-input"
@@ -134,8 +156,10 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
               <div className="menu-location-selected">
                 <div className="menu-location-selected-header">
                   <div>
-                    <p className="menu-location-selected-name">{selectedPlace.name}</p>
-                    <p className="menu-location-selected-address">{selectedPlace.address}</p>
+                    <p className="menu-location-selected-name">{selectedPlace.name || '이름을 찾는 중...'}</p>
+                    {selectedPlace.address && (
+                      <p className="menu-location-selected-address">{selectedPlace.address}</p>
+                    )}
                   </div>
                   <button
                     type="button"
