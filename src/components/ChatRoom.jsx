@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getNearbyChatMessages, sendChatMessage, watchNearbyChatMessages } from '../supabaseClient'
+import { sendChatMessage, watchNearbyChatMessages } from '../supabaseClient'
 import { getActorToken } from '../myPosts'
 
 const NEARBY_RADIUS_METERS = 1000
@@ -30,6 +30,11 @@ export function mergeChatMessages(current, incoming) {
   }).slice(-200)
 }
 
+export function isChatNearBottom(element, threshold = 80) {
+  if (!element) return true
+  return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold
+}
+
 function locationMessage(status) {
   if (status === 'loading') return '현재 위치를 확인하고 있어요…'
   if (status === 'denied') return '위치 권한을 허용해야 동네 채팅을 사용할 수 있어요.'
@@ -37,7 +42,7 @@ function locationMessage(status) {
 }
 
 // 신뢰할 수 있는 현재 위치 1km 이내 메시지만 조회하고 주기적으로 서버 snapshot과 병합한다.
-function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLocation }) {
+function ChatRoom({ active = true, displayLocation, trustedLocation, locationStatus, onRetryLocation }) {
   const [messages, setMessages] = useState([])
   const [messagesStatus, setMessagesStatus] = useState('idle')
   const [messagesError, setMessagesError] = useState(null)
@@ -50,6 +55,8 @@ function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLoc
   const requestGenerationRef = useRef(0)
   const pendingMessageIdRef = useRef(null)
   const actorTokenRef = useRef(null)
+  const stickToBottomRef = useRef(true)
+  const forceScrollRef = useRef(true)
 
   const readLocation = trustedLocation ?? displayLocation
   const readLat = readLocation?.lat
@@ -63,6 +70,11 @@ function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLoc
     const generation = requestGenerationRef.current + 1
     requestGenerationRef.current = generation
 
+    if (!active) {
+      setRealtimeStatus('IDLE')
+      return undefined
+    }
+
     if (!hasReadLocation) {
       setMessages([])
       setMessagesStatus('idle')
@@ -71,23 +83,24 @@ function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLoc
       return undefined
     }
 
-    let active = true
+    let listening = true
     let stopWatching = () => {}
 
     setMessages([])
     setMessagesStatus('loading')
     setMessagesError(null)
     setRealtimeStatus('CONNECTING')
+    forceScrollRef.current = true
 
     const acceptSnapshot = (snapshot) => {
-      if (!active || generation !== requestGenerationRef.current) return
+      if (!listening || generation !== requestGenerationRef.current) return
       setMessages((current) => mergeChatMessages(current, Array.isArray(snapshot) ? snapshot : []))
       setMessagesStatus('ready')
       setMessagesError(null)
     }
 
     const handleError = (error) => {
-      if (!active || generation !== requestGenerationRef.current) return
+      if (!listening || generation !== requestGenerationRef.current) return
       setMessagesError(error)
       setMessagesStatus((status) => (status === 'ready' ? status : 'error'))
     }
@@ -101,28 +114,28 @@ function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLoc
         onMessages: acceptSnapshot,
         onError: handleError,
         onStatus: (status) => {
-          if (active && generation === requestGenerationRef.current) setRealtimeStatus(status)
+          if (listening && generation === requestGenerationRef.current) setRealtimeStatus(status)
         },
       })
     } catch (error) {
       handleError(error)
     }
 
-    getNearbyChatMessages({
-      lat: readLat,
-      lng: readLng,
-      radiusMeters: NEARBY_RADIUS_METERS,
-      limit: 200,
-    }).then(acceptSnapshot).catch(handleError)
-
     return () => {
-      active = false
+      listening = false
       if (typeof stopWatching === 'function') stopWatching()
     }
-  }, [hasReadLocation, readLat, readLng, refreshGeneration])
+  }, [active, hasReadLocation, readLat, readLng, refreshGeneration])
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
+    const list = listRef.current
+    if (!list || (!forceScrollRef.current && !stickToBottomRef.current)) return undefined
+    const frame = window.requestAnimationFrame(() => {
+      list.scrollTo({ top: list.scrollHeight })
+      stickToBottomRef.current = true
+      forceScrollRef.current = false
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [messages])
 
   async function handleSend(event) {
@@ -144,6 +157,7 @@ function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLoc
         lng: trustedLng,
         content: trimmed,
       })
+      forceScrollRef.current = true
       setMessages((current) => mergeChatMessages(current, [created]))
       setMessagesStatus('ready')
       setText('')
@@ -167,7 +181,15 @@ function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLoc
       <h1 className="chat-room-title">동네 채팅</h1>
       <p className="chat-room-subtitle">내 위치 1km 이내 이웃과 대화해요.</p>
 
-      <div className="chat-room-messages" ref={listRef}>
+      <div
+        className="chat-room-messages"
+        ref={listRef}
+        aria-live="polite"
+        aria-relevant="additions"
+        onScroll={(event) => {
+          stickToBottomRef.current = isChatNearBottom(event.currentTarget)
+        }}
+      >
         {!hasTrustedLocation && (
           <div className="chat-room-empty">
             <p>{locationMessage(locationStatus)}</p>

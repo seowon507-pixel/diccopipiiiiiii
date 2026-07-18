@@ -56,6 +56,7 @@ function App() {
     nearbyPosts,
     activeCategories,
     toggleCategory,
+    enableAllCategories,
     postsStatus,
     postsError,
     refetchPosts,
@@ -199,6 +200,30 @@ function App() {
     pendingCreateRef.current = null
   }
 
+  function openEditModal(post) {
+    if (!post || !isMyPost(post.id)) return
+
+    setSelectedPostId(null)
+    setPostActionError(null)
+    setLocationActionError(null)
+    setSubmitError(null)
+    setPendingPosition({ lat: post.lat, lng: post.lng })
+    setPendingPinConvert(null)
+    setQuickCategory(null)
+    setEditTarget({
+      id: post.id,
+      lat: post.lat,
+      lng: post.lng,
+      category: post.category,
+      title: post.title,
+      content: post.content,
+      image_url: post.image_url,
+      icon: post.icon,
+    })
+    pendingCreateRef.current = null
+    setModalOpen(true)
+  }
+
   async function handleSubmitPost({ category, title, content, imageFile, removeImage, icon }) {
     if (!pendingPosition) return
     if (!editTarget && (!isLocationTrusted || !trustedLocation)) {
@@ -320,6 +345,7 @@ function App() {
             locationLoading={locationStatus === 'loading'}
             locationDenied={!isLocationTrusted && locationStatus !== 'loading'}
             locationError={locationError}
+            isLocationTrusted={isLocationTrusted}
             nearbyPosts={nearbyPosts}
             activePosts={activePosts}
             activeCategories={activeCategories}
@@ -344,12 +370,14 @@ function App() {
             onWrite={openCreateModal}
             activeCategories={activeCategories}
             onToggleCategory={toggleCategory}
+            onEnableAllCategories={enableAllCategories}
             onSelectPost={setSelectedPostId}
           />
         </section>
 
         <section className="app-tab-panel" hidden={activeTab !== 'chat'} aria-hidden={activeTab !== 'chat'}>
           <ChatRoom
+            active={activeTab === 'chat'}
             displayLocation={displayLocation}
             trustedLocation={trustedLocation}
             locationStatus={locationStatus}
@@ -383,6 +411,7 @@ function App() {
           onLike={() => handleLike(selectedPost)}
           liking={likingPostId === selectedPost.id}
           isMine={isMyPost(selectedPost.id)}
+          onEdit={() => openEditModal(selectedPost)}
           onDelete={() => handleDeletePost(selectedPost)}
           deleting={deletingPostId === selectedPost.id}
         />

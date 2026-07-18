@@ -4,6 +4,10 @@ import { useEffect, useRef } from 'react'
 function PinMenu({ onWrite, onAskQuestion, onDelete, onClose, deleting, canDelete = false, errorMessage = null }) {
   const dialogRef = useRef(null)
   const firstActionRef = useRef(null)
+  const closeRef = useRef(onClose)
+  const deletingRef = useRef(deleting)
+  closeRef.current = onClose
+  deletingRef.current = deleting
 
   useEffect(() => {
     const previousFocus = document.activeElement
@@ -11,7 +15,7 @@ function PinMenu({ onWrite, onAskQuestion, onDelete, onClose, deleting, canDelet
 
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
-        if (!deleting) onClose()
+        if (!deletingRef.current) closeRef.current()
         return
       }
       if (event.key !== 'Tab' || !dialogRef.current) return
@@ -33,7 +37,7 @@ function PinMenu({ onWrite, onAskQuestion, onDelete, onClose, deleting, canDelet
       document.removeEventListener('keydown', handleKeyDown)
       previousFocus?.focus?.()
     }
-  }, [deleting, onClose])
+  }, [])
 
   function handleClose() {
     if (!deleting) onClose()

@@ -189,6 +189,10 @@ export function usePosts(userLocation) {
     })
   }
 
+  function enableAllCategories() {
+    setActiveCategories(new Set(CATEGORIES))
+  }
+
   // 카테고리 필터가 켜져 있고 만료되지 않은 게시글(위치 반경과 무관, 메뉴 탭의 "전체 커뮤니티"용).
   const activePosts = useMemo(
     () => filterActivePosts(posts, activeCategories, now),
@@ -222,5 +226,6 @@ export function usePosts(userLocation) {
     now,
     activeCategories,
     toggleCategory,
+    enableAllCategories,
   }
 }

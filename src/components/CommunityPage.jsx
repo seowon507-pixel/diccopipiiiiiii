@@ -18,6 +18,7 @@ function CommunityPage({
   onWrite,
   activeCategories,
   onToggleCategory,
+  onEnableAllCategories,
   onSelectPost,
 }) {
   const [selectedBuildingId, setSelectedBuildingId] = useState(null)
@@ -111,6 +112,13 @@ function CommunityPage({
         </div>
       ) : postsStatus === 'loading' ? (
         <p className="community-empty" role="status">건물 목록을 불러오는 중...</p>
+      ) : activeCategories?.size === 0 ? (
+        <div className="community-empty-state">
+          <p>모든 카테고리가 꺼져 있어 건물을 표시할 수 없어요.</p>
+          {onEnableAllCategories && (
+            <button type="button" onClick={onEnableAllCategories}>모든 카테고리 켜기</button>
+          )}
+        </div>
       ) : (
         <BuildingList buildings={buildings} onSelect={(building) => setSelectedBuildingId(building.id)} />
       )}

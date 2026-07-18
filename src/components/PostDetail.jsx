@@ -32,7 +32,7 @@ function formatTime(dateStr) {
   })
 }
 
-function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMine, onDelete, deleting, actionError }) {
+function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMine, onEdit, onDelete, deleting, actionError }) {
   const [comments, setComments] = useState([])
   const [commentsStatus, setCommentsStatus] = useState('loading')
   const [commentsError, setCommentsError] = useState(null)
@@ -40,6 +40,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
   const [commentText, setCommentText] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
   const [submitError, setSubmitError] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [refreshGeneration, setRefreshGeneration] = useState(0)
   const requestGenerationRef = useRef(0)
   const pendingCommentIdRef = useRef(null)
@@ -48,8 +49,10 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
   const closeButtonRef = useRef(null)
   const closeRef = useRef(onClose)
   const busyRef = useRef(false)
+  const confirmDeleteRef = useRef(false)
   closeRef.current = onClose
   busyRef.current = Boolean(deleting || submittingComment)
+  confirmDeleteRef.current = confirmDelete
 
   useEffect(() => {
     const previousFocus = document.activeElement
@@ -57,7 +60,11 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
 
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
-        if (!busyRef.current) closeRef.current()
+        if (confirmDeleteRef.current) {
+          setConfirmDelete(false)
+        } else if (!busyRef.current) {
+          closeRef.current()
+        }
         return
       }
       if (event.key !== 'Tab' || !dialogRef.current) return
@@ -95,6 +102,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
     setRealtimeStatus('CONNECTING')
     setSubmitError(null)
     pendingCommentIdRef.current = null
+    setConfirmDelete(false)
 
     const acceptComments = (incoming) => {
       if (!active || generation !== requestGenerationRef.current) return
@@ -233,7 +241,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
             <p className="post-detail-comments-empty">첫 댓글을 남겨보세요.</p>
           )}
 
-          <ul className="post-detail-comment-list">
+          <ul className="post-detail-comment-list" aria-live="polite" aria-relevant="additions">
             {comments.map((comment) => (
               <li key={comment.id} className="post-detail-comment">
                 <p className="post-detail-comment-content">{comment.content}</p>
@@ -269,9 +277,34 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
         </div>
 
         {isMine && (
-          <button type="button" className="post-detail-delete" disabled={deleting} onClick={onDelete}>
-            {deleting ? '삭제 중...' : '내 글 삭제하기'}
-          </button>
+          <div className="post-detail-owner-actions">
+            <button
+              type="button"
+              className="post-detail-edit"
+              disabled={deleting || submittingComment}
+              onClick={onEdit}
+            >
+              내 글 수정하기
+            </button>
+            {confirmDelete ? (
+              <div className="post-detail-delete-confirm" role="group" aria-label="게시글 삭제 확인">
+                <span>정말 삭제할까요?</span>
+                <button type="button" disabled={deleting} onClick={() => setConfirmDelete(false)}>취소</button>
+                <button type="button" className="danger" disabled={deleting} onClick={onDelete}>
+                  {deleting ? '삭제 중...' : '삭제'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="post-detail-delete"
+                disabled={deleting || submittingComment}
+                onClick={() => setConfirmDelete(true)}
+              >
+                내 글 삭제하기
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

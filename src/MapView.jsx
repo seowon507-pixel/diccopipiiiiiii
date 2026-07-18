@@ -51,10 +51,6 @@ function createRequestId() {
   })
 }
 
-function isTouchDevice() {
-  return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
-}
-
 function loadKakaoMapScript(appKey) {
   if (window.kakao?.maps?.services) return Promise.resolve(window.kakao)
   if (kakaoMapScriptPromise) return kakaoMapScriptPromise
@@ -201,6 +197,7 @@ function MapView({
   locationLoading,
   locationDenied,
   locationError = null,
+  isLocationTrusted = false,
   nearbyPosts,
   activePosts,
   activeCategories,
@@ -223,6 +220,7 @@ function MapView({
   const touchStartRef = useRef({ x: 0, y: 0 })
   const lastTouchTimeRef = useRef(0)
   const savedMapViewRef = useRef(null)
+  const pendingPinCreateRef = useRef(null)
 
   const [pins, setPins] = useState([])
   // 핀이 지도를 뒤덮어 가독성이 떨어질 때 사용자가 직접 껐다 켤 수 있는 표시 여부(서버 데이터는 그대로 유지).
@@ -231,7 +229,8 @@ function MapView({
   const [deletingPinId, setDeletingPinId] = useState(null)
   // 지도를 클릭한 지점(아직 서버에 핀이 만들어지지 않은 상태)의 건물/장소 미리보기
   const [previewPosition, setPreviewPosition] = useState(null)
-  // 장소검색으로 선택한 위치(핀/글쓰기와 무관, 위치 표시 전용) — 마커만 먼저 뜨고, 마커를 눌러야 정보 카드가 열린다.
+  // 장소검색으로 선택한 위치(핀/글쓰기와 무관, 위치 표시 전용). 검색 결과 선택 즉시 정보 카드를 열고
+  // 닫은 뒤에는 지도 마커를 눌러 다시 열 수 있다.
   const [searchedPlace, setSearchedPlace] = useState(null)
   const [placeCardOpen, setPlaceCardOpen] = useState(false)
   const [placeCommunityOpen, setPlaceCommunityOpen] = useState(false)
@@ -354,12 +353,12 @@ function MapView({
         zIndex: 10,
       })
 
-      // 데스크톱(마우스)만 클릭으로 장소 미리보기를 연다. 모바일은 아래 터치 핸들러의 롱프레스로 처리한다.
-      if (!isTouchDevice()) {
-        kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
-          setPreviewPosition({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() })
-        })
-      }
+      // 터치 지원 기기에서도 실제 마우스/트랙패드 클릭은 허용한다. 터치 뒤 발생하는 합성 click만 무시해
+      // 모바일의 롱프레스 동작과 중복되지 않게 한다.
+      kakao.maps.event.addListener(map, 'click', (mouseEvent) => {
+        if (Date.now() - lastTouchTimeRef.current < 700) return
+        setPreviewPosition({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() })
+      })
     }).catch((err) => {
       console.error('[MapView] 카카오맵 초기화 실패', err)
       if (!cancelled) {
@@ -512,19 +511,37 @@ function MapView({
   // 좌표에 실제로 서버 핀을 만드는 공용 로직 (지도 미리보기 / 장소검색 결과 선택에서 공유)
   async function createPinAt(lat, lng) {
     setPinActionError(null)
+    if (!isLocationTrusted) {
+      setPinActionError('현재 위치를 확인해야 핀을 만들 수 있어요.')
+      return null
+    }
+
+    const pending = pendingPinCreateRef.current
+      && pendingPinCreateRef.current.lat === lat
+      && pendingPinCreateRef.current.lng === lng
+      ? pendingPinCreateRef.current
+      : {
+          id: createRequestId(),
+          ownerSecret: generateOwnerSecret(),
+          lat,
+          lng,
+        }
+    pendingPinCreateRef.current = pending
+
     try {
-      const ownerSecret = generateOwnerSecret()
       const created = await createPin({
-        id: createRequestId(),
+        id: pending.id,
         actorToken: getActorToken(),
         lat,
         lng,
-        ownerSecret,
+        ownerSecret: pending.ownerSecret,
       })
-      if (!savePinOwnership(created.id, ownerSecret)) {
-        await deletePin(created.id, ownerSecret)
+      if (!savePinOwnership(created.id, pending.ownerSecret)) {
+        pendingPinCreateRef.current = null
+        await deletePin(created.id, pending.ownerSecret)
         throw new Error('이 브라우저에 핀 소유권을 저장할 수 없습니다.')
       }
+      pendingPinCreateRef.current = null
       setPins((prev) => (prev.some((pin) => pin.id === created.id) ? prev : [created, ...prev]))
       return created
     } catch (err) {
@@ -550,16 +567,23 @@ function MapView({
     }
   }
 
-  // 장소검색 결과를 선택하면 핀을 만들지 않고 위치 마커만 띄운다 — 정보 카드는 마커를 눌러야 열린다.
+  // 장소검색 결과를 선택하면 핀을 만들지 않고 위치 마커와 정보 카드를 함께 보여준다.
   function handleSelectSearchPlace(place) {
     setSearchedPlace(place)
-    setPlaceCardOpen(false)
+    setPlaceCardOpen(true)
     setPlaceCommunityOpen(false)
   }
 
   // 카드를 닫아도 마커는 남아있는다(다시 눌러서 재조회 가능). 다음 검색 선택 시에만 마커가 바뀐다.
   function closePlaceCard() {
     setPlaceCardOpen(false)
+  }
+
+  function closePlacePreview() {
+    if (creatingPin) return
+    pendingPinCreateRef.current = null
+    setPinActionError(null)
+    setPreviewPosition(null)
   }
 
   // PlacePreview에서 "커뮤니티 보기"를 누르면 미리보기를 닫고 커뮤니티 탭으로 전환한다.
@@ -659,19 +683,13 @@ function MapView({
     lastTouchTimeRef.current = Date.now()
   }
 
-  const locationBanner = locationDenied && (
+  const locationBanner = locationLoading ? (
+    <div className="location-banner" role="status">위치 확인 중...</div>
+  ) : locationDenied ? (
     <div className="location-banner" role="status">
       {locationError?.message || locationError || '위치 접근이 거부되어 기본 위치로 표시하고 있어요.'}
     </div>
-  )
-
-  if (locationLoading) {
-    return (
-      <div className="map-placeholder" role="status" aria-label="위치 확인 중" hidden={!display}>
-        <span className="map-placeholder-label">위치 확인 중...</span>
-      </div>
-    )
-  }
+  ) : null
 
   const selectedPin = pins.find((pin) => pin.id === selectedPinId) ?? null
 
@@ -869,8 +887,9 @@ function MapView({
         kakao={kakaoReady ? window.kakao : null}
         onCreatePin={handleCreatePinAtPreview}
         onViewCommunity={handleViewCommunityFromPreview}
-        onClose={() => setPreviewPosition(null)}
+        onClose={closePlacePreview}
         creatingPin={creatingPin}
+        canCreatePin={isLocationTrusted}
         errorMessage={pinActionError}
       />
 

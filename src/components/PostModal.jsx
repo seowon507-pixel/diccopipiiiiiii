@@ -5,6 +5,8 @@ const TITLE_MAX_LENGTH = 40
 const CONTENT_MAX_LENGTH = 500
 const MIN_CONTENT_LENGTH = 2
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif'
 
 function PostModal({
   open,
@@ -31,6 +33,10 @@ function PostModal({
   const dialogRef = useRef(null)
   const titleInputRef = useRef(null)
   const objectUrlRef = useRef(null)
+  const closeRef = useRef(onClose)
+  const submittingRef = useRef(submitting)
+  closeRef.current = onClose
+  submittingRef.current = submitting
 
   useEffect(() => () => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
@@ -59,7 +65,7 @@ function PostModal({
 
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
-        if (!submitting) onClose()
+        if (!submittingRef.current) closeRef.current()
         return
       }
       if (event.key !== 'Tab' || !dialogRef.current) return
@@ -85,7 +91,7 @@ function PostModal({
       document.removeEventListener('keydown', handleKeyDown)
       previousFocus?.focus?.()
     }
-  }, [open, submitting, onClose])
+  }, [open])
 
   if (!open) return null
 
@@ -105,8 +111,9 @@ function PostModal({
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (!file.type.startsWith('image/')) {
-      setImageError('이미지 파일만 올릴 수 있어요.')
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setImageError('JPG, PNG, WebP, GIF 이미지만 올릴 수 있어요.')
+      event.target.value = ''
       return
     }
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
@@ -175,7 +182,7 @@ function PostModal({
 
         {isEditing && (
           <p className="post-modal-edit-notice">
-            5분 이내 근처(50m)에 작성한 글이 있어 수정 모드로 열었어요.
+            내가 작성한 글을 수정하고 있어요.
           </p>
         )}
         {!isEditing && willBeExternal && (
@@ -245,7 +252,7 @@ function PostModal({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept={IMAGE_ACCEPT}
                 onChange={handleImageChange}
                 hidden
               />

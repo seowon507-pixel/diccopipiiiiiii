@@ -1164,6 +1164,12 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
+.post-detail :focus-visible,
+.place-card :focus-visible {
+  outline: 3px solid #1f6658;
+  outline-offset: 2px;
+}
+
 .post-detail-header {
   display: flex;
   align-items: center;
@@ -1522,21 +1528,57 @@ textarea:focus-visible {
   display: block;
 }
 
-.post-detail-delete {
+.post-detail-owner-actions {
   margin-top: 8px;
-  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.post-detail-edit,
+.post-detail-delete {
   border: none;
   background: none;
-  color: #a63e3e;
   font-size: 0.82rem;
   font-weight: 600;
   cursor: pointer;
   padding: 4px 0;
 }
 
+.post-detail-edit {
+  color: #1f6658;
+}
+
+.post-detail-delete {
+  color: #a63e3e;
+}
+
 .post-detail-delete:disabled {
   color: #c99;
   cursor: not-allowed;
+}
+
+.post-detail-delete-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #555;
+  font-size: 0.82rem;
+}
+
+.post-detail-delete-confirm button {
+  border: 1px solid #d8d8d8;
+  border-radius: 10px;
+  background: #fff;
+  color: #555;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.post-detail-delete-confirm button.danger {
+  border-color: #f0d8d8;
+  color: #a63e3e;
 }
 
 /* 게시글 카드 - 썸네일 */
@@ -1678,7 +1720,8 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
-.pin-menu-owner-note {
+.pin-menu-owner-note,
+.place-preview-owner-note {
   border-radius: 12px;
   background: #f5f5f5;
   color: #777;
@@ -1815,12 +1858,16 @@ textarea:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .post-detail-backdrop,
+  .post-detail,
   .post-modal-backdrop,
   .post-modal,
   .pin-menu-backdrop,
   .pin-menu,
   .place-preview-backdrop,
   .place-preview,
+  .place-card-backdrop,
+  .place-card,
   .map-sheet {
     animation: none;
     transition: none;

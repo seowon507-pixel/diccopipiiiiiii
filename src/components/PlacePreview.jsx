@@ -2,13 +2,26 @@ import { useEffect, useRef, useState } from 'react'
 
 // 지도를 클릭한 지점의 건물/장소 정보를 먼저 보여주는 가벼운 미리보기.
 // 핀은 아직 서버에 생성되지 않은 상태 — "이 위치에 핀 만들기"를 눌러야 실제로 생성된다.
-function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, creatingPin, errorMessage = null }) {
+function PlacePreview({
+  position,
+  kakao,
+  onCreatePin,
+  onViewCommunity,
+  onClose,
+  creatingPin,
+  canCreatePin = false,
+  errorMessage = null,
+}) {
   const [address, setAddress] = useState(null)
   const [buildingName, setBuildingName] = useState(null)
   const [nearbyPlaceName, setNearbyPlaceName] = useState(null)
   const [lookupStatus, setLookupStatus] = useState('idle')
   const dialogRef = useRef(null)
   const firstActionRef = useRef(null)
+  const closeRef = useRef(onClose)
+  const creatingRef = useRef(creatingPin)
+  closeRef.current = onClose
+  creatingRef.current = creatingPin
 
   useEffect(() => {
     setAddress(null)
@@ -71,7 +84,7 @@ function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, 
 
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
-        if (!creatingPin) onClose()
+        if (!creatingRef.current) closeRef.current()
         return
       }
       if (event.key !== 'Tab' || !dialogRef.current) return
@@ -94,7 +107,7 @@ function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, 
       document.removeEventListener('keydown', handleKeyDown)
       previousFocus?.focus?.()
     }
-  }, [position, creatingPin, onClose])
+  }, [Boolean(position), position?.lat, position?.lng])
 
   if (!position) return null
 
@@ -125,10 +138,17 @@ function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, 
           )}
         </div>
 
-        <button ref={firstActionRef} type="button" className="place-preview-action" disabled={creatingPin} onClick={onCreatePin}>
-          {creatingPin ? '핀 만드는 중...' : '📌 이 위치에 핀 만들기'}
+        <button
+          ref={canCreatePin ? firstActionRef : undefined}
+          type="button"
+          className="place-preview-action"
+          disabled={creatingPin || !canCreatePin}
+          onClick={onCreatePin}
+        >
+          {creatingPin ? '핀 만드는 중...' : canCreatePin ? '📌 이 위치에 핀 만들기' : '위치 확인 후 핀 만들기'}
         </button>
         <button
+          ref={canCreatePin ? undefined : firstActionRef}
           type="button"
           className="place-preview-action"
           disabled={creatingPin}
@@ -141,6 +161,10 @@ function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, 
         >
           🏘 커뮤니티 보기
         </button>
+
+        {!canCreatePin && (
+          <p className="place-preview-owner-note" role="status">핀을 만들려면 현재 위치 확인이 필요해요.</p>
+        )}
 
         {errorMessage && <p className="dialog-error" role="alert">{errorMessage}</p>}
 
