@@ -1,8 +1,10 @@
+import AppIcon from './AppIcon.jsx'
+
 const TABS = [
-  { key: 'map', label: '지도', icon: '🗺️' },
-  { key: 'community', label: '커뮤니티', icon: '📋' },
-  { key: 'chat', label: '채팅', icon: '💬' },
-  { key: 'menu', label: '메뉴', icon: '☰' },
+  { key: 'map', label: '지도', icon: 'map' },
+  { key: 'community', label: '커뮤니티', icon: 'community' },
+  { key: 'chat', label: '채팅', icon: 'chat' },
+  { key: 'menu', label: '메뉴', icon: 'menu' },
 ]
 
 // 지도/커뮤니티/채팅/메뉴를 오가는 하단 탭바.
@@ -18,7 +20,7 @@ function TabBar({ activeTab, onChange }) {
           aria-label={`${tab.label} 탭`}
           onClick={() => onChange(tab.key)}
         >
-          <span className="tab-bar-icon">{tab.icon}</span>
+          <span className="tab-bar-icon"><AppIcon name={tab.icon} size={22} /></span>
           <span className="tab-bar-label">{tab.label}</span>
         </button>
       ))}

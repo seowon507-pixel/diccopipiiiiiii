@@ -9,6 +9,7 @@ import QuickPostSheet from './components/QuickPostSheet.jsx'
 import Toast from './components/Toast.jsx'
 import TabBar from './components/TabBar.jsx'
 import Onboarding from './components/Onboarding.jsx'
+import AppIcon from './components/AppIcon.jsx'
 import { hasSeenOnboarding, markOnboardingSeen } from './onboarding'
 import { useUserLocation } from './useUserLocation'
 import { usePosts, EXTERNAL_DISTANCE_METERS } from './usePosts'
@@ -504,12 +505,13 @@ function App() {
         {/* 탭과 무관하게 항상 떠 있는 빠른 글쓰기 진입점 — 어느 탭에서 눌러도 "현재 위치"에 등록한다. */}
         <button
           type="button"
-          className="quick-post-fab"
+          className={`quick-post-fab quick-post-fab--${activeTab}`}
           aria-label="빠르게 글쓰기"
           disabled={!isLocationTrusted}
           onClick={() => setQuickPostOpen(true)}
         >
-          +
+          <AppIcon name="compose" size={21} />
+          <span className="quick-post-fab-label">글쓰기</span>
         </button>
 
         <QuickPostSheet

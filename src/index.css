@@ -3,11 +3,11 @@
      4.5:1 이상이 되도록 어둡게 보정했다(원래 #aaaaaa~#777777은 2.3~4.5:1로 미달이었음).
      gray-500 이상은 이미 통과라 그대로 뒀다. */
   --color-white: #ffffff;
-  --color-gray-50: #f5f5f5;
-  --color-gray-100: #f0f0f0;
-  --color-gray-150: #eeeeee;
-  --color-gray-200: #dddddd;
-  --color-gray-250: #d8d8d8;
+  --color-gray-50: #f5f8f6;
+  --color-gray-100: #edf2ef;
+  --color-gray-150: #e3eae6;
+  --color-gray-200: #d7e0db;
+  --color-gray-250: #cbd6d0;
   --color-gray-300: #757575;
   --color-gray-350: #6c6c6c;
   --color-gray-400: #636363;
@@ -22,12 +22,20 @@
   /* 포인트 컬러 — 단 1개(청록), 앱 전역 핵심 액션에 일관되게 사용.
      accent-tint은 WCAG 감사에서 accent 텍스트와의 대비가 4.45:1(미달)로 나와 아주 살짝
      더 밝게 보정했다(#eef5f2 → #f2f7f5, 육안 차이 거의 없음). */
-  --color-accent: #2e7d6b;
-  --color-accent-tint: #f2f7f5;
-  --color-accent-muted: #9fb8b2;
-  --color-accent-ring: rgba(46, 125, 107, 0.6);
-  --color-accent-wash: rgba(46, 125, 107, 0.08);
+  --color-accent: #1f7a62;
+  --color-accent-tint: #edf8f3;
+  --color-accent-muted: #8eb6a9;
+  --color-accent-ring: rgba(31, 122, 98, 0.6);
+  --color-accent-wash: rgba(31, 122, 98, 0.1);
   --color-disabled-bg: #cfd8d5;
+
+  /* v6 UI 시스템: 정보성 화면의 캔버스·카드·강조 텍스트를 지도 오버레이와 분리한다. */
+  --color-canvas: #f3f7f4;
+  --color-surface: #ffffff;
+  --color-ink: #14251f;
+  --color-ink-muted: #607069;
+  --color-accent-strong: #145744;
+  --color-accent-soft: #dff2ea;
 
   /* 카테고리 9색 — categories.js CATEGORY_COLORS와 반드시 같은 값으로 유지할 것.
      (카카오맵 SVG 마커는 data URI라 CSS 변수를 못 읽어서 JS 쪽은 hex 리터럴을 유지해야 함)
@@ -59,8 +67,8 @@
   --color-backdrop: rgba(0, 0, 0, 0.45);
 
   /* 지도 위에 뜨는 오버레이(헤더/우측 아이콘/시트)에 쓰는 반투명 유리 느낌 표면. */
-  --surface-glass: rgba(255, 255, 255, 0.72);
-  --blur-glass: 14px;
+  --surface-glass: rgba(255, 255, 255, 0.9);
+  --blur-glass: 18px;
 
   /* 폰트 */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
@@ -92,9 +100,9 @@
   --radius-circle: 50%;
 
   /* 그림자 */
-  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.15);
-  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.15);
-  --shadow-sheet: 0 -2px 20px rgba(0, 0, 0, 0.16);
+  --shadow-sm: 0 4px 14px rgba(28, 58, 47, 0.1);
+  --shadow-md: 0 12px 30px rgba(28, 58, 47, 0.16);
+  --shadow-sheet: 0 -12px 38px rgba(28, 58, 47, 0.16);
   --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.25);
   --shadow-marker: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-marker-light: 0 1px 3px rgba(0, 0, 0, 0.25);
@@ -3615,4 +3623,749 @@ textarea:focus-visible {
   text-align: center;
   line-height: 1.45;
   margin: var(--space-3) 0 0;
+}
+
+/* --------------------------------------------------------------------------
+   v6 UI refresh — 기능 구조는 유지하고, 지도·피드·메뉴를 하나의 시각 언어로 통합한다.
+   -------------------------------------------------------------------------- */
+
+body {
+  color: var(--color-ink);
+  background: #dfe8e3;
+}
+
+.app {
+  position: relative;
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--color-canvas);
+  box-shadow: 0 0 42px rgba(20, 55, 43, 0.12);
+}
+
+.app-content {
+  background: var(--color-canvas);
+}
+
+.app-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.page-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.page-eyebrow {
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+/* 하단 탐색: 이모지 대신 같은 굵기의 선형 아이콘과 활성 탭 배경을 사용한다. */
+.tab-bar {
+  position: relative;
+  z-index: 60;
+  gap: 4px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(203, 214, 208, 0.78);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -8px 24px rgba(27, 58, 47, 0.07);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.tab-bar-item {
+  min-height: 52px;
+  gap: 3px;
+  padding: 7px 4px 6px;
+  border-radius: 16px;
+  color: #73827b;
+}
+
+.tab-bar-item.active {
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  font-weight: 750;
+}
+
+.tab-bar-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  font-size: inherit;
+}
+
+.tab-bar-label {
+  font-size: 0.7rem;
+  letter-spacing: -0.01em;
+}
+
+/* 글쓰기는 콘텐츠 화면에서는 명확한 레이블을, 지도에서는 공간을 덜 가리는 원형 버튼을 쓴다. */
+.quick-post-fab {
+  right: 18px;
+  bottom: 18px;
+  width: auto;
+  height: 54px;
+  min-width: 54px;
+  padding: 0 20px;
+  gap: 8px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #23866b, #17664f);
+  font-size: 0.94rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  box-shadow: 0 12px 28px rgba(23, 102, 79, 0.3);
+}
+
+.quick-post-fab-label {
+  display: inline;
+}
+
+.quick-post-fab--map {
+  right: auto;
+  left: 18px;
+  bottom: calc(45% + 18px);
+  z-index: 14;
+  width: 58px;
+  height: 58px;
+  padding: 0;
+  border-radius: 20px;
+}
+
+.quick-post-fab--map .quick-post-fab-label {
+  display: none;
+}
+
+.quick-post-fab--chat {
+  bottom: 82px;
+  width: 50px;
+  height: 50px;
+  min-width: 50px;
+  padding: 0;
+  border-radius: 17px;
+}
+
+.quick-post-fab--chat .quick-post-fab-label {
+  display: none;
+}
+
+.quick-post-fab:disabled {
+  background: #a9bbb4;
+  box-shadow: none;
+}
+
+/* 정보형 탭 공통 캔버스 */
+.community-page,
+.menu-page,
+.chat-room {
+  background:
+    radial-gradient(circle at 100% 0, rgba(31, 122, 98, 0.08), transparent 34%),
+    var(--color-canvas);
+}
+
+.community-page,
+.menu-page {
+  gap: 18px;
+  padding: 22px 18px 104px;
+}
+
+.community-page-title,
+.menu-page-title,
+.chat-room-title {
+  color: var(--color-ink);
+  font-size: 1.46rem;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
+}
+
+.community-page-subtitle,
+.chat-room-subtitle {
+  margin-top: 0;
+  color: var(--color-ink-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.community-page-heading {
+  padding: 2px 2px 4px;
+}
+
+/* 메뉴 홈 */
+.menu-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 106px;
+  padding: 20px;
+  border: 1px solid rgba(31, 122, 98, 0.12);
+  border-radius: 26px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(235, 247, 241, 0.96));
+  box-shadow: 0 14px 34px rgba(35, 76, 61, 0.09);
+}
+
+.menu-hero-mark {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 58px;
+  height: 58px;
+  border-radius: 19px;
+  color: var(--color-white);
+  background: linear-gradient(145deg, #2a8c70, #155c48);
+  box-shadow: 0 10px 22px rgba(31, 122, 98, 0.24);
+  font-size: 1.32rem;
+  font-weight: 850;
+}
+
+.menu-hero-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.menu-hero-desc {
+  color: var(--color-ink-muted);
+  font-size: 0.79rem;
+  line-height: 1.4;
+}
+
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.menu-section-title {
+  padding: 0 4px;
+  color: #61736b;
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.menu-card-list {
+  gap: 9px;
+}
+
+.menu-card {
+  min-height: 76px;
+  gap: 13px;
+  padding: 13px 14px;
+  border-color: rgba(203, 214, 208, 0.72);
+  border-radius: 20px;
+  box-shadow: 0 5px 18px rgba(34, 67, 55, 0.055);
+}
+
+.menu-card:hover {
+  border-color: rgba(31, 122, 98, 0.25);
+  box-shadow: 0 9px 22px rgba(34, 67, 55, 0.09);
+  transform: translateY(-1px);
+}
+
+.menu-card-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  font-size: inherit;
+}
+
+.menu-card-icon--community {
+  color: #26715f;
+  background: #e3f3ed;
+}
+
+.menu-card-icon--location {
+  color: #3f6690;
+  background: #e8f0f8;
+}
+
+.menu-card-icon--notification {
+  color: #9a6b18;
+  background: #fff3d7;
+}
+
+.menu-card-icon--recovery {
+  color: #75528d;
+  background: #f1eafa;
+}
+
+.menu-card-icon--privacy {
+  color: #216d5a;
+  background: #dff2ea;
+}
+
+.menu-card-text {
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+}
+
+.menu-card-label-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.menu-card-label {
+  color: var(--color-ink);
+  font-size: 0.94rem;
+  letter-spacing: -0.025em;
+}
+
+.menu-card-desc {
+  color: var(--color-ink-muted);
+  font-size: 0.76rem;
+  line-height: 1.42;
+}
+
+.menu-card-arrow {
+  color: #a0aea7;
+}
+
+.menu-card--privacy {
+  border-color: rgba(31, 122, 98, 0.2);
+  background: linear-gradient(135deg, #fff, #f2faf6);
+}
+
+.menu-card-status {
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.menu-card-toggle {
+  width: 46px;
+  height: 28px;
+  padding: 3px;
+  background: #ced9d3;
+}
+
+.menu-card-toggle-knob {
+  width: 22px;
+  height: 22px;
+}
+
+.menu-card-toggle.on {
+  background: var(--color-accent);
+}
+
+.menu-card-toggle.on .menu-card-toggle-knob {
+  transform: translateX(18px);
+}
+
+.menu-page-header {
+  min-height: 48px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(203, 214, 208, 0.65);
+}
+
+.menu-back-button {
+  border-radius: 12px;
+  padding: 6px 8px;
+}
+
+/* 커뮤니티 피드 */
+.community-feed {
+  gap: 12px;
+}
+
+.community-search-input,
+.community-favorite-input,
+.chat-room-input,
+.recovery-restore-input {
+  min-height: 46px;
+  border-color: rgba(174, 190, 182, 0.8);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 3px 12px rgba(34, 67, 55, 0.04);
+}
+
+.community-search-input {
+  padding: 12px 14px;
+}
+
+.community-category-chip,
+.community-sort-chip,
+.community-favorite-chip,
+.chat-radius-chip {
+  border-color: #cfdbd5;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.community-sort-chip.active,
+.chat-radius-chip.active {
+  border-color: var(--color-accent-strong);
+  background: var(--color-accent-strong);
+}
+
+.building-list,
+.community-list,
+.trending-list {
+  gap: 10px;
+}
+
+.building-card,
+.post-card {
+  border-color: rgba(203, 214, 208, 0.78);
+  border-radius: 19px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 5px 18px rgba(34, 67, 55, 0.06);
+}
+
+.building-card {
+  min-height: 72px;
+  padding: 14px 16px;
+}
+
+.building-card::before {
+  content: '';
+  width: 9px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: linear-gradient(#4c9a82, #dff2ea);
+}
+
+.building-card-count {
+  border-radius: 999px;
+  padding: 5px 8px;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-tint);
+  font-weight: 700;
+}
+
+.post-card {
+  min-height: 72px;
+  padding: 12px 14px;
+}
+
+.post-card-icon {
+  width: 40px;
+  height: 40px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+
+/* 채팅 */
+.chat-room {
+  gap: 12px;
+  padding: 22px 18px 18px;
+}
+
+.chat-room-heading {
+  padding: 2px 2px 4px;
+}
+
+.chat-room-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chat-live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: #76847d;
+  background: #e8eeeb;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.chat-live-indicator > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9ba8a2;
+}
+
+.chat-live-indicator.online {
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+}
+
+.chat-live-indicator.online > span {
+  background: #29a27f;
+  box-shadow: 0 0 0 4px rgba(41, 162, 127, 0.12);
+}
+
+.chat-radius-chip {
+  min-height: 38px;
+  padding: 6px 13px;
+}
+
+.chat-room-messages {
+  padding: 12px;
+  border: 1px solid rgba(203, 214, 208, 0.7);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.chat-message {
+  border-radius: 5px 18px 18px;
+  background: #e7f3ee;
+}
+
+.chat-room-form {
+  padding: 6px;
+  border: 1px solid rgba(203, 214, 208, 0.8);
+  border-radius: 19px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(34, 67, 55, 0.08);
+}
+
+.chat-room-input {
+  border: 0;
+  box-shadow: none;
+}
+
+.chat-room-send {
+  min-width: 66px;
+  border-radius: 14px;
+}
+
+/* 지도 상단 검색·컨트롤 */
+.map-header {
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: 12px;
+  right: 12px;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  box-shadow: 0 10px 28px rgba(31, 54, 46, 0.15);
+}
+
+.map-header-location {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.map-header-location-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+}
+
+.map-header-location > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.map-header-eyebrow {
+  color: #718078;
+  font-size: 0.61rem;
+  font-weight: 700;
+}
+
+.map-header-neighborhood {
+  color: var(--color-ink);
+  font-size: 0.98rem;
+  line-height: 1.2;
+}
+
+.place-search-form {
+  min-height: 46px;
+  padding: 5px 5px 5px 14px;
+  border: 1px solid rgba(203, 214, 208, 0.8);
+  box-shadow: none;
+}
+
+.place-search-button {
+  width: 38px;
+  height: 36px;
+  padding: 0;
+}
+
+.category-filter-toggle,
+.pin-toggle-button,
+.recenter-button {
+  width: 46px;
+  height: 46px;
+  border-color: rgba(203, 214, 208, 0.82);
+  color: #53645d;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 7px 18px rgba(31, 54, 46, 0.13);
+}
+
+.map-side-rail {
+  bottom: calc(45% + 18px);
+  z-index: 14;
+}
+
+.category-filter-toggle.active,
+.pin-toggle-button.active {
+  background: var(--color-accent);
+}
+
+/* 지도 하단 시트 */
+.map-sheet {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.map-sheet-handle {
+  gap: 7px;
+  padding: 10px 0 7px;
+}
+
+.map-sheet-handle-bar {
+  width: 44px;
+  background: #c7d3cd;
+}
+
+.map-sheet-content {
+  padding: 0 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  gap: 14px;
+}
+
+.map-sheet-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.map-sheet-heading > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.map-sheet-heading strong {
+  color: var(--color-ink);
+  font-size: 1.05rem;
+  letter-spacing: -0.035em;
+}
+
+.map-sheet-count {
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.realtime-carousel-card {
+  border-radius: 18px;
+  box-shadow: 0 5px 16px rgba(34, 67, 55, 0.06);
+}
+
+.map-sheet-more-button {
+  width: 100%;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #cfe1d9;
+  border-radius: 15px;
+  background: var(--color-accent-tint);
+}
+
+.map-sheet-more-button .app-icon:last-child {
+  margin-left: auto;
+}
+
+/* 빈 상태는 단순 문장 대신 명확한 시각적 중심과 CTA를 제공한다. */
+.empty-neighborhood {
+  padding: 14px 8px 8px;
+}
+
+.empty-neighborhood-emoji {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(31, 122, 98, 0.08);
+  font-size: inherit;
+}
+
+.empty-neighborhood-title {
+  color: var(--color-ink);
+  font-size: 1.08rem;
+  letter-spacing: -0.035em;
+}
+
+.empty-neighborhood-desc {
+  color: var(--color-ink-muted);
+  line-height: 1.55;
+}
+
+.empty-neighborhood-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 50px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #23866b, #17664f);
+  box-shadow: 0 9px 22px rgba(23, 102, 79, 0.22);
+}
+
+@media (max-width: 360px) {
+  .quick-post-fab:not(.quick-post-fab--map) {
+    width: 50px;
+    height: 50px;
+    min-width: 50px;
+    padding: 0;
+    border-radius: 17px;
+  }
+
+  .quick-post-fab:not(.quick-post-fab--map) .quick-post-fab-label {
+    display: none;
+  }
+
+  .menu-hero {
+    padding: 16px;
+  }
+
+  .menu-card {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .menu-card-icon {
+    width: 42px;
+    height: 42px;
+  }
+}
+
+@media (min-width: 720px) {
+  .app {
+    border-left: 1px solid rgba(203, 214, 208, 0.8);
+    border-right: 1px solid rgba(203, 214, 208, 0.8);
+  }
 }

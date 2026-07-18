@@ -103,14 +103,17 @@ function CommunityPage({
 
   return (
     <div className="community-page">
-      <h1 className="community-page-title">커뮤니티</h1>
-      <p className="community-page-subtitle">
-        {isLocationTrusted
-          ? '내 주변 500m 이내 건물이에요. 눌러서 글을 봐요.'
-          : locationStatus === 'loading'
-            ? '현재 위치를 확인하고 있어요.'
-            : '위치를 확인하지 못해 서울시청 기준 500m를 보여드려요.'}
-      </p>
+      <header className="page-heading community-page-heading">
+        <span className="page-eyebrow">내 주변 500m</span>
+        <h1 className="community-page-title">동네 커뮤니티</h1>
+        <p className="community-page-subtitle">
+          {isLocationTrusted
+            ? '가까운 건물을 선택해 지금 올라온 이야기를 확인해 보세요.'
+            : locationStatus === 'loading'
+              ? '현재 위치를 확인하고 있어요.'
+              : '위치를 확인하지 못해 서울시청 기준으로 보여드려요.'}
+        </p>
+      </header>
       {postsStatus === 'error' || resolvedPostsError ? (
         <div className="community-empty-state" role="alert">
           <p>{resolvedPostsError || '게시글을 불러오지 못했어요.'}</p>

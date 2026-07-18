@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import AppIcon from './AppIcon.jsx'
 
 // 카카오맵이 활성화된 경우에만 사용하는 장소/건물 검색. kakao.maps.services 라이브러리가 필요하다.
 function PlaceSearch({ kakao, kakaoMap, onWriteHere, onSelectPlace }) {
@@ -89,7 +90,7 @@ function PlaceSearch({ kakao, kakaoMap, onWriteHere, onSelectPlace }) {
           onChange={(event) => setQuery(event.target.value)}
         />
         <button type="submit" className="place-search-button" aria-label="검색">
-          🔍
+          <AppIcon name="search" size={18} />
         </button>
       </form>
 

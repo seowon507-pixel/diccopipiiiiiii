@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import RealtimeIssueCarousel from './RealtimeIssueCarousel.jsx'
 import EmptyNeighborhood from './EmptyNeighborhood.jsx'
+import AppIcon from './AppIcon.jsx'
 
 const COLLAPSED_PX = 64
 const MIDDLE_RATIO = 0.45
@@ -136,6 +137,13 @@ function MapSheet({
       <div id="map-sheet-content" className="map-sheet-content" hidden={isCollapsed}>
         {!isCollapsed && (
           <>
+            <div className="map-sheet-heading">
+              <span>
+                <span className="page-eyebrow">NEARBY</span>
+                <strong>{communityExpanded ? '동네 커뮤니티' : '내 주변 소식'}</strong>
+              </span>
+              <span className="map-sheet-count">{posts.length}개</span>
+            </div>
             {!communityExpanded ? (
               isEmpty ? (
                 <EmptyNeighborhood
@@ -153,7 +161,9 @@ function MapSheet({
                     className="map-sheet-more-button"
                     onClick={() => setCommunityExpanded(true)}
                   >
-                    🏘 커뮤니티 더보기
+                    <AppIcon name="community" size={18} />
+                    커뮤니티 전체 보기
+                    <AppIcon name="chevron" size={16} />
                   </button>
                 </>
               )

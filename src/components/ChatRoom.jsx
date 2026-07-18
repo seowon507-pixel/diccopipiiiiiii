@@ -196,9 +196,17 @@ function ChatRoom({ active = true, displayLocation, trustedLocation, locationSta
   }
 
   return (
-      <div className="chat-room">
-      <h1 className="chat-room-title">동네 채팅</h1>
-      <p className="chat-room-subtitle">내 위치 기준 반경 이내 이웃과 실시간으로 대화해요.</p>
+    <div className="chat-room">
+      <header className="page-heading chat-room-heading">
+        <span className="page-eyebrow">가까운 이웃과 실시간</span>
+        <span className="chat-room-title-row">
+          <h1 className="chat-room-title">동네 채팅</h1>
+          <span className={`chat-live-indicator${realtimeStatus === 'SUBSCRIBED' ? ' online' : ''}`}>
+            <span aria-hidden="true" /> {realtimeStatus === 'SUBSCRIBED' ? '연결됨' : '연결 중'}
+          </span>
+        </span>
+        <p className="chat-room-subtitle">내 위치 기준으로 가까운 이웃과 가볍게 대화해요.</p>
+      </header>
 
       <div className="chat-radius-row">
         {RADIUS_OPTIONS.map((option) => (

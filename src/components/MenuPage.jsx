@@ -3,6 +3,7 @@ import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
 import RecoveryCode from './RecoveryCode.jsx'
+import AppIcon from './AppIcon.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
 
@@ -75,56 +76,80 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
     <div className="menu-page">
       {view === 'home' && (
         <>
-          <h1 className="menu-page-title">메뉴</h1>
-          <div className="menu-card-list">
-            <button type="button" className="menu-card" onClick={() => setView('all')}>
-              <span className="menu-card-icon">🏘</span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">전체 커뮤니티</span>
-                <span className="menu-card-desc">거리 제한 없이 모든 동네 글을 봐요</span>
-              </span>
-            </button>
-            <button type="button" className="menu-card" onClick={handleOpenLocation}>
-              <span className="menu-card-icon">📍</span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">위치·건물별 커뮤니티</span>
-                <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
-              </span>
-            </button>
-            <button type="button" className="menu-card" onClick={() => setView('notifications')}>
-              <span className="menu-card-icon">🔔</span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">알림 설정</span>
-                <span className="menu-card-desc">관심 지역·키워드에 새 글 오면 알려드려요</span>
-              </span>
-            </button>
-            <button type="button" className="menu-card" onClick={() => setView('recovery')}>
-              <span className="menu-card-icon">🔑</span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">복구 코드</span>
-                <span className="menu-card-desc">폰을 바꿔도 내 글/핀을 계속 관리해요</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className="menu-card"
-              onClick={toggleLocationPrivacy}
-              aria-pressed={locationPrivacy}
-            >
-              <span className="menu-card-icon">🛡️</span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">내 위치 보호</span>
-                <span className="menu-card-desc">
-                  {locationPrivacy
-                    ? '현재 위치에 올리는 글·채팅을 대략적인 위치로 표시해요'
-                    : '정확한 현재 위치가 그대로 표시돼요'}
+          <header className="menu-hero">
+            <span className="menu-hero-mark" aria-hidden="true">우</span>
+            <span className="menu-hero-copy">
+              <span className="page-eyebrow">우리동네알림</span>
+              <h1 className="menu-page-title">동네 생활</h1>
+              <span className="menu-hero-desc">소식 탐색부터 알림과 개인정보 관리까지</span>
+            </span>
+          </header>
+
+          <section className="menu-section" aria-labelledby="menu-explore-title">
+            <h2 id="menu-explore-title" className="menu-section-title">커뮤니티 둘러보기</h2>
+            <div className="menu-card-list">
+              <button type="button" className="menu-card" onClick={() => setView('all')}>
+                <span className="menu-card-icon menu-card-icon--community"><AppIcon name="globe" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">전체 커뮤니티</span>
+                  <span className="menu-card-desc">거리 제한 없이 모든 동네 글을 봐요</span>
                 </span>
-              </span>
-              <span className={`menu-card-toggle${locationPrivacy ? ' on' : ''}`} aria-hidden="true">
-                <span className="menu-card-toggle-knob" />
-              </span>
-            </button>
-          </div>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button type="button" className="menu-card" onClick={handleOpenLocation}>
+                <span className="menu-card-icon menu-card-icon--location"><AppIcon name="location" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">위치·건물별 커뮤니티</span>
+                  <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+            </div>
+          </section>
+
+          <section className="menu-section" aria-labelledby="menu-manage-title">
+            <h2 id="menu-manage-title" className="menu-section-title">설정과 보안</h2>
+            <div className="menu-card-list">
+              <button type="button" className="menu-card" onClick={() => setView('notifications')}>
+                <span className="menu-card-icon menu-card-icon--notification"><AppIcon name="bell" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">알림 설정</span>
+                  <span className="menu-card-desc">관심 지역·키워드의 새 소식을 놓치지 않아요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button type="button" className="menu-card" onClick={() => setView('recovery')}>
+                <span className="menu-card-icon menu-card-icon--recovery"><AppIcon name="key" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">복구 코드</span>
+                  <span className="menu-card-desc">기기를 바꿔도 내 글과 핀을 이어서 관리해요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button
+                type="button"
+                className="menu-card menu-card--privacy"
+                onClick={toggleLocationPrivacy}
+                aria-pressed={locationPrivacy}
+              >
+                <span className="menu-card-icon menu-card-icon--privacy"><AppIcon name="shield" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label-row">
+                    <span className="menu-card-label">내 위치 보호</span>
+                    {locationPrivacy && <span className="menu-card-status">보호 중</span>}
+                  </span>
+                  <span className="menu-card-desc">
+                    {locationPrivacy
+                      ? '글·채팅 위치를 동네 수준으로 안전하게 흐려요'
+                      : '정확한 현재 위치가 그대로 표시돼요'}
+                  </span>
+                </span>
+                <span className={`menu-card-toggle${locationPrivacy ? ' on' : ''}`} aria-hidden="true">
+                  <span className="menu-card-toggle-knob" />
+                </span>
+              </button>
+            </div>
+          </section>
         </>
       )}
 
