@@ -15,6 +15,17 @@ function formatTime(dateStr) {
   return new Date(dateStr).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit' })
 }
 
+// scrollTo가 없는 환경(jsdom 테스트, 일부 구형 브라우저)에서도 채팅 목록 스크롤이 실패하지 않게 한다.
+function scrollChatToBottom(element) {
+  if (!element) return
+  const top = element.scrollHeight
+  if (typeof element.scrollTo === 'function') {
+    element.scrollTo({ top })
+  } else {
+    element.scrollTop = top
+  }
+}
+
 // 게시글 댓글과 별개로, 내 위치 기준 반경 이내 이웃과 실시간으로 대화하는 동네 전체 공용 채팅방.
 // 서버에서는 최근 200개를 반경 상관없이 통째로 받아두고(rawMessages), 화면에 보일 것만
 // radiusMeters로 클라이언트에서 걸러낸다 — 반경을 바꿔도 재요청 없이 즉시 다시 걸러진다.
@@ -51,7 +62,7 @@ function ChatRoom({ userLocation }) {
   }, [rawMessages, userLocation, radiusMeters])
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
+    scrollChatToBottom(listRef.current)
   }, [messages])
 
   async function handleSend(event) {
