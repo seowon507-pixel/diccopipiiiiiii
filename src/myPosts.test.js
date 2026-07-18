@@ -4,6 +4,7 @@ import {
   forgetOwnership,
   getActorToken,
   getOwnerSecret,
+  getReporterSecret,
   isMyPost,
   saveOwnership,
 } from './myPosts'
@@ -32,5 +33,18 @@ describe('post ownership storage', () => {
 
     expect(first).toHaveLength(36)
     expect(second).toBe(first)
+  })
+
+  it('keeps one reporter secret in memory when persistent storage is blocked', () => {
+    const readSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError')
+    })
+
+    const first = getReporterSecret()
+    const second = getReporterSecret()
+
+    expect(first.length).toBeGreaterThanOrEqual(32)
+    expect(second).toBe(first)
+    readSpy.mockRestore()
   })
 })

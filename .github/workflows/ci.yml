@@ -37,9 +37,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Create base schema
         run: docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/base_schema.sql
-      - name: Apply migration twice
+      - name: Apply migrations twice
         run: |
           docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260718_v1_security_hardening.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260719_v4_feature_hardening.sql
           docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260718_v1_security_hardening.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260719_v4_feature_hardening.sql
       - name: Verify security behavior
-        run: docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v1.sql
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v1.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v4.sql

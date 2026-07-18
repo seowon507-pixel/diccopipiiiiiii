@@ -59,7 +59,7 @@ function Comment({ comment, replies, postId, onReacted }) {
   const [replyText, setReplyText] = useState('')
   const [submittingReply, setSubmittingReply] = useState(false)
   // 새로고침 전까지만 "내가 방금 누른 반응"을 표시하는 용도 — 서버 쪽 중복 방지는
-  // reactor_secret unique 제약이 이미 보장하므로 이건 순전히 하이라이트 표시용이다.
+  // reactor hash unique 제약이 이미 보장하므로 이건 순전히 하이라이트 표시용이다.
   const [reactedKeys, setReactedKeys] = useState(() => new Set())
 
   async function handleReact(targetItem, emoji) {

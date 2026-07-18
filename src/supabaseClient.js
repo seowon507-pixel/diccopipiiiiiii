@@ -6,7 +6,7 @@ import { generateOwnerSecret, getOrCreateActorToken } from './myPosts'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
 const useDummyData = import.meta.env.DEV && import.meta.env.VITE_USE_DUMMY_DATA === 'true'
-// 운영 환경은 반드시 v2 migration을 사용한다. 아직 migration을 적용하지 않은 기존 개발 DB는
+// 운영 환경은 반드시 보안 migration을 사용한다. 아직 migration을 적용하지 않은 기존 개발 DB는
 // 명시적으로 이 플래그를 켠 경우에만 legacy 계약으로 제한적으로 되돌아간다.
 const allowLegacyBackend = import.meta.env.DEV && import.meta.env.VITE_ALLOW_LEGACY_BACKEND === 'true'
 
@@ -41,9 +41,24 @@ export const backendConfigurationError = isValidSupabaseUrl(supabaseUrl) && supa
   : new BackendConfigurationError('Supabase URL 또는 anon key가 설정되지 않았거나 올바르지 않습니다.')
 
 // A missing environment must not crash module evaluation. Callers receive a typed error instead.
-export const supabase = backendConfigurationError
-  ? null
-  : createClient(supabaseUrl, supabaseAnonKey)
+const DEV_CLIENT_CACHE_KEY = '__woorimadongSupabaseClient'
+
+function getOrCreateSupabaseClient() {
+  // Vite HMR이 이 모듈을 다시 평가할 때 GoTrueClient가 중복 생성되면 동일한 storage key를
+  // 여러 인스턴스가 경합한다. 개발 브라우저에서만 URL/key가 같은 client를 재사용한다.
+  if (import.meta.env.DEV && import.meta.env.MODE !== 'test') {
+    const cached = globalThis[DEV_CLIENT_CACHE_KEY]
+    if (cached?.url === supabaseUrl && cached?.anonKey === supabaseAnonKey) return cached.client
+
+    const client = createClient(supabaseUrl, supabaseAnonKey)
+    globalThis[DEV_CLIENT_CACHE_KEY] = { url: supabaseUrl, anonKey: supabaseAnonKey, client }
+    return client
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey)
+}
+
+export const supabase = backendConfigurationError ? null : getOrCreateSupabaseClient()
 
 function requireSupabase() {
   if (!supabase) throw backendConfigurationError
@@ -150,7 +165,7 @@ export async function createPost({
 
   return withLegacyFallback(
     'createPost',
-    () => rpc('create_post_v2', {
+    () => rpc('create_post_v3', {
       p_post_id: id,
       p_actor_token: actorTokenOrDefault(actorToken),
       p_owner_secret: ownerSecret,
@@ -163,6 +178,7 @@ export async function createPost({
       p_content: content,
       p_image_url: imageUrl ?? null,
       p_icon: icon ?? null,
+      p_device_secret: deviceSecret ?? null,
     }),
     async () => {
       const resolvedPostType = postType ?? (
@@ -208,12 +224,13 @@ export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSe
 
   return withLegacyFallback(
     'createPin',
-    () => rpc('create_pin_v2', {
+    () => rpc('create_pin_v3', {
       p_pin_id: id,
       p_actor_token: actorTokenOrDefault(actorToken),
       p_lat: lat,
       p_lng: lng,
       p_owner_secret: ownerSecret,
+      p_device_secret: deviceSecret ?? null,
     }),
     () => rpc('create_pin_with_owner', {
       p_lat: lat,
@@ -226,7 +243,14 @@ export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSe
 
 // 다른 기기에서 예전 device_secret(복구 코드)을 입력했을 때 그 코드로 만든 글/핀 소유권을 되찾는다.
 export async function restoreOwnership(deviceSecret) {
-  return rpcRows('restore_ownership', { p_device_secret: deviceSecret })
+  return withLegacyFallback(
+    'restoreOwnership',
+    () => rpcRows('restore_ownership_v2', {
+      p_device_secret: deviceSecret,
+      p_actor_token: actorTokenOrDefault(),
+    }),
+    () => rpcRows('restore_ownership', { p_device_secret: deviceSecret }),
+  )
 }
 
 export async function deletePin(id, ownerSecret) {
@@ -428,28 +452,19 @@ export async function createComment(postId, content, options = {}) {
   const id = typeof options === 'object' && options.id ? options.id : randomId()
   const actorToken = typeof options === 'object' ? options.actorToken : undefined
 
-  if (parentCommentId) {
-    const { data, error } = await requireSupabase()
-      .from('comments')
-      .insert({ id, post_id: postId, content, parent_comment_id: parentCommentId })
-      .select()
-      .single()
-    if (error) throw error
-    return data
-  }
-
   return withLegacyFallback(
     'createComment',
-    () => rpc('create_comment_v2', {
+    () => rpc('create_comment_v3', {
       p_comment_id: id,
       p_post_id: postId,
       p_actor_token: actorTokenOrDefault(actorToken),
       p_content: content,
+      p_parent_comment_id: parentCommentId,
     }),
     async () => {
       const { data, error } = await requireSupabase()
         .from('comments')
-        .insert({ id, post_id: postId, content })
+        .insert({ id, post_id: postId, content, parent_comment_id: parentCommentId })
         .select()
         .single()
       if (error) throw error
@@ -483,31 +498,53 @@ export function subscribeToComments(postId, options = {}, legacyStatus) {
 }
 
 // 게시글/댓글 신고. 같은 브라우저(reporterSecret)가 같은 대상을 여러 번 눌러도 서버에서
-// 1회만 집계되고(post_reports/comment_reports의 unique 제약), 누적 5회부터는 RPC가
+// 1회만 집계되고(post_reports/comment_reports의 reporter hash unique 제약), 누적 5회부터는 RPC가
 // posts.hidden/comments.hidden을 자동으로 true로 바꿔 즉시 노출을 중단시킨다.
 export async function reportPost(postId, reporterSecret) {
-  return rpc('report_post', {
-    p_post_id: postId,
-    p_reporter_secret: reporterSecret,
-  })
+  return withLegacyFallback(
+    'reportPost',
+    () => rpc('report_post_v2', {
+      p_post_id: postId,
+      p_reporter_secret: reporterSecret,
+    }),
+    () => rpc('report_post', {
+      p_post_id: postId,
+      p_reporter_secret: reporterSecret,
+    }),
+  )
 }
 
 export async function reportComment(commentId, reporterSecret) {
-  return rpc('report_comment', {
-    p_comment_id: commentId,
-    p_reporter_secret: reporterSecret,
-  })
+  return withLegacyFallback(
+    'reportComment',
+    () => rpc('report_comment_v2', {
+      p_comment_id: commentId,
+      p_reporter_secret: reporterSecret,
+    }),
+    () => rpc('report_comment', {
+      p_comment_id: commentId,
+      p_reporter_secret: reporterSecret,
+    }),
+  )
 }
 
 // 댓글 이모지 반응 토글 — 같은 reactorSecret(notifications.js getOrCreateDeviceSecret 재사용)이
 // 같은 이모지를 다시 누르면 추가↔삭제가 토글된다. comments.reactions 갱신은 realtime UPDATE로도
 // 오지만(subscribeToComments), 이 응답으로 바로 낙관적 갱신할 수 있다.
 export async function reactToComment(commentId, emoji, reactorSecret) {
-  return rpc('react_to_comment', {
-    p_comment_id: commentId,
-    p_emoji: emoji,
-    p_reactor_secret: reactorSecret,
-  })
+  return withLegacyFallback(
+    'reactToComment',
+    () => rpc('react_to_comment_v2', {
+      p_comment_id: commentId,
+      p_emoji: emoji,
+      p_reactor_secret: reactorSecret,
+    }),
+    () => rpc('react_to_comment', {
+      p_comment_id: commentId,
+      p_emoji: emoji,
+      p_reactor_secret: reactorSecret,
+    }),
+  )
 }
 
 export async function getNearbyChatMessages({
@@ -626,7 +663,7 @@ export function subscribeToChatMessages(_onInsert, onStatus) {
 }
 
 // 웹 푸시 구독 + 알림 설정(관심 지역/키워드/조용한 시간)을 device_secret 기준으로 저장/갱신한다.
-// device_secret은 로그인 없이 이 브라우저를 식별하는 값(src/notifications.js가 localStorage에 보관).
+// device_secret 원문은 localStorage에만 있고 서버에는 SHA-256 hash로 저장한다.
 export async function upsertPushSubscription({
   deviceSecret,
   endpoint,
@@ -637,7 +674,7 @@ export async function upsertPushSubscription({
   quietStart,
   quietEnd,
 }) {
-  await rpc('upsert_push_subscription', {
+  const params = {
     p_device_secret: deviceSecret,
     p_endpoint: endpoint,
     p_p256dh: p256dh,
@@ -646,14 +683,21 @@ export async function upsertPushSubscription({
     p_keywords: keywords,
     p_quiet_start: quietStart,
     p_quiet_end: quietEnd,
-  })
+  }
+  await withLegacyFallback(
+    'upsertPushSubscription',
+    () => rpc('upsert_push_subscription_v2', params),
+    () => rpc('upsert_push_subscription', params),
+  )
 }
 
 // 알림을 끌 때 서버에 저장된 구독을 지운다.
 export async function deletePushSubscription(deviceSecret) {
-  return rpc('delete_push_subscription', {
-    p_device_secret: deviceSecret,
-  })
+  return withLegacyFallback(
+    'deletePushSubscription',
+    () => rpc('delete_push_subscription_v2', { p_device_secret: deviceSecret }),
+    () => rpc('delete_push_subscription', { p_device_secret: deviceSecret }),
+  )
 }
 
 // posts 테이블의 등록(INSERT)/수정(UPDATE)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.

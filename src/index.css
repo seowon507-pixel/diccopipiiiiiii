@@ -2242,7 +2242,26 @@ textarea:focus-visible {
   border-radius: var(--radius-xl);
   padding: var(--space-2-5) var(--space-3-5);
   background: var(--color-white);
+}
+
+.post-card-open {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
+}
+
+.post-card-open:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 4px;
+  border-radius: var(--radius-md);
 }
 
 .post-card--realtime {

@@ -5,7 +5,18 @@
 - 브랜치/커밋: `main` / `ba57e5a1f546eea052d8edc21982cc84bbc89d8e`
 - 초기 판정: **NO-GO — 원본 main 상태로는 출시를 권장하지 않음**
 
-> 아래 1~8장은 원본 `main` 커밋에서 재현한 결함 기록이다. `kimiv` 브랜치의 v1 수정·재검증 결과는 바로 아래에 별도로 정리했다.
+> 아래 1~8장은 원본 `main` 커밋에서 재현한 결함 기록이다. `kimiv`의 최신 기능·보안 재검증 결과와 초기 v1 결과는 바로 아래에 별도로 정리했다.
+
+## 0-A. kimiv 2026-07-19 업그레이드 결과
+
+- 코드 준비도: **8.5/10 — staging migration·실제 푸시 worker 검증 전까지 CONDITIONAL GO**
+- 자동 테스트: **16개 파일, 51개 테스트 통과**
+- SQL 통합 테스트: PostgreSQL 17에서 v1/v4 migration을 각각 2회 적용 후 전체 검증 통과
+- 해결: 화면과 DB 계약이 어긋났던 신고·답글·반응·복구·푸시 설정을 버전형 RPC로 통일
+- 해결: owner/device/reporter/reactor secret의 서버 plaintext 저장 제거
+- 해결: 5회 신고 숨김과 중복 방지를 원자화하고 hidden 콘텐츠를 RLS에서도 제외
+- 해결: 답글 direct INSERT 제거, Supabase HMR client 중복 제거, 게시글 카드 중첩 인터랙션 제거
+- 남은 배포 조건: 두 migration의 staging 적용, 실제 push/image worker 연결, 운영 키 기반 E2E·남용 방어
 
 ## 0. kimiv v1 수정·재검증 결과
 

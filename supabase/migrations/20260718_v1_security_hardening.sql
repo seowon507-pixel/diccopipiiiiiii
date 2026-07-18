@@ -54,6 +54,10 @@ revoke all on public.storage_cleanup_queue from anon, authenticated;
 
 alter table public.post_owners add column if not exists owner_secret_hash bytea;
 alter table public.pin_owners add column if not exists owner_secret_hash bytea;
+alter table public.post_owners add column if not exists device_secret_hash bytea;
+alter table public.pin_owners add column if not exists device_secret_hash bytea;
+alter table public.post_owners add column if not exists recovery_ciphertext bytea;
+alter table public.pin_owners add column if not exists recovery_ciphertext bytea;
 
 update public.post_owners
 set owner_secret_hash = extensions.digest(owner_secret, 'sha256')
@@ -62,6 +66,47 @@ where owner_secret_hash is null and owner_secret is not null;
 update public.pin_owners
 set owner_secret_hash = extensions.digest(owner_secret, 'sha256')
 where owner_secret_hash is null and owner_secret is not null;
+
+-- Some pre-hardening schemas already stored a plaintext device_secret for
+-- ownership recovery. Preserve that capability as encrypted escrow before the
+-- plaintext owner/device values are erased below.
+do $migration$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'post_owners' and column_name = 'device_secret'
+  ) then
+    alter table public.post_owners alter column device_secret drop not null;
+    execute $sql$
+      update public.post_owners
+      set device_secret_hash = extensions.digest(device_secret, 'sha256'),
+          recovery_ciphertext = case
+            when owner_secret is not null then extensions.pgp_sym_encrypt(owner_secret, device_secret, 'cipher-algo=aes256')
+            else recovery_ciphertext
+          end
+      where device_secret is not null
+    $sql$;
+    execute 'update public.post_owners set device_secret = null where device_secret is not null';
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'pin_owners' and column_name = 'device_secret'
+  ) then
+    alter table public.pin_owners alter column device_secret drop not null;
+    execute $sql$
+      update public.pin_owners
+      set device_secret_hash = extensions.digest(device_secret, 'sha256'),
+          recovery_ciphertext = case
+            when owner_secret is not null then extensions.pgp_sym_encrypt(owner_secret, device_secret, 'cipher-algo=aes256')
+            else recovery_ciphertext
+          end
+      where device_secret is not null
+    $sql$;
+    execute 'update public.pin_owners set device_secret = null where device_secret is not null';
+  end if;
+end
+$migration$;
 
 alter table public.post_owners alter column owner_secret drop not null;
 alter table public.pin_owners alter column owner_secret drop not null;
@@ -646,7 +691,7 @@ $function$;
 
 -- ---------------------------------------------------------------------------
 -- Radius-bound chat. Exact chat coordinates are returned only after the server
--- has evaluated the requested radius (capped at 1 km).
+-- has evaluated the requested radius (capped at 2 km).
 -- ---------------------------------------------------------------------------
 
 create index if not exists chat_messages_created_at_v1_idx

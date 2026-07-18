@@ -7,6 +7,7 @@ const REPORTER_SECRET_KEY = 'woorimadong_reporter_secret'
 const REPORTED_STORAGE_KEY = 'woorimadong_reported_targets'
 
 let inMemoryActorToken = null
+let inMemoryReporterSecret = null
 const inMemoryOwnership = {
   [POST_STORAGE_KEY]: {},
   [PIN_STORAGE_KEY]: {},
@@ -138,16 +139,23 @@ export function forgetActorToken() {
 // 재사용한다(post_reports/comment_reports의 unique(post_id, reporter_secret) 제약과 짝을 이뤄
 // 같은 브라우저가 같은 글을 중복 신고해 집계를 부풀리지 못하게 막는 용도).
 export function getReporterSecret() {
+  if (inMemoryReporterSecret) return inMemoryReporterSecret
+
   try {
     const existing = localStorage.getItem(REPORTER_SECRET_KEY)
-    if (existing) return existing
+    if (existing && existing.length >= 32) {
+      inMemoryReporterSecret = existing
+      return existing
+    }
 
     const secret = generateOwnerSecret()
+    inMemoryReporterSecret = secret
     localStorage.setItem(REPORTER_SECRET_KEY, secret)
     return secret
   } catch {
-    // localStorage를 쓸 수 없는 환경이면 이번 호출에서만 쓰이는 임시 값으로 대체한다.
-    return generateOwnerSecret()
+    // localStorage를 쓸 수 없는 환경에서도 이 탭에서는 동일한 신고 식별자를 재사용한다.
+    inMemoryReporterSecret = generateOwnerSecret()
+    return inMemoryReporterSecret
   }
 }
 

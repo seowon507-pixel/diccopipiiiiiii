@@ -1,13 +1,14 @@
 // 로그인 없이 이 브라우저를 식별하는 익명 device_secret + 알림 설정(관심 지역/키워드/조용한 시간)을
-// localStorage에 보관한다. myPosts.js의 owner_secret 패턴과 같은 철학 — 서버는 device_secret으로만
-// "이 기기"를 식별하고, 값 자체는 로컬에만 있다.
+// localStorage에 보관한다. myPosts.js의 owner_secret 패턴과 같은 철학 — 서버는 device_secret의
+// SHA-256 hash로만 "이 기기"를 식별하고, 원문 값은 로컬에만 있다.
 // 이 device_secret은 원래 push_subscriptions 식별 전용이었지만, 24번 단계(익명 소유권 복구)부터는
-// post_owners/pin_owners에도 같은 값이 함께 기록된다 — "이 브라우저의 유일한 익명 정체성"이라는
+// post_owners/pin_owners에도 hash+암호화 escrow 형태로 연결된다 — "이 브라우저의 유일한 익명 정체성"이라는
 // 의미가 커져서, 복구 코드(RecoveryCode.jsx)도 이 값을 그대로 재사용한다(별도 코드 체계 안 만듦).
 import { upsertPushSubscription, deletePushSubscription } from './supabaseClient'
 
 const DEVICE_SECRET_KEY = 'discopipi_notification_device_secret'
 const PREFS_KEY = 'discopipi_notification_prefs'
+let inMemoryDeviceSecret = null
 
 // "기본 1~2개 관심지역 저장" — 슬롯 개수를 여기서 한 곳으로 관리한다.
 export const MAX_INTEREST_AREAS = 2
@@ -23,10 +24,24 @@ const DEFAULT_PREFS = {
 }
 
 export function getOrCreateDeviceSecret() {
-  let secret = localStorage.getItem(DEVICE_SECRET_KEY)
-  if (!secret) {
-    secret = crypto.randomUUID()
+  if (inMemoryDeviceSecret) return inMemoryDeviceSecret
+
+  try {
+    const stored = localStorage.getItem(DEVICE_SECRET_KEY)
+    if (stored && stored.length >= 32) {
+      inMemoryDeviceSecret = stored
+      return stored
+    }
+  } catch {
+    // Private/locked-down browsers may reject even localStorage reads.
+  }
+
+  const secret = crypto.randomUUID()
+  inMemoryDeviceSecret = secret
+  try {
     localStorage.setItem(DEVICE_SECRET_KEY, secret)
+  } catch {
+    // Keep a stable identity for this tab even when persistence is unavailable.
   }
   return secret
 }
@@ -35,6 +50,7 @@ export function getOrCreateDeviceSecret() {
 // 그 정체성을 이어받게 한다 — 이후 이 기기에서 쓰는 글/핀도 같은 device_secret으로 계속
 // 묶이도록. 알림 구독 자체를 옮기는 건 아니다(요청받은 범위 밖 — 필요해지면 그때 추가).
 export function adoptDeviceSecret(secret) {
+  inMemoryDeviceSecret = secret
   try {
     localStorage.setItem(DEVICE_SECRET_KEY, secret)
   } catch {
@@ -71,6 +87,7 @@ async function subscribeAndSync(prefs) {
   await navigator.serviceWorker.ready
 
   const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY
+  if (!vapidPublicKey) throw new Error('푸시 알림 서버 설정이 아직 완료되지 않았어요.')
   let subscription = await registration.pushManager.getSubscription()
   if (!subscription) {
     subscription = await registration.pushManager.subscribe({

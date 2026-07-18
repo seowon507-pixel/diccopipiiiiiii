@@ -21,6 +21,7 @@ describe('Supabase legacy compatibility', () => {
     vi.stubEnv('VITE_ALLOW_LEGACY_BACKEND', 'true')
     createClientMock.mockReset()
     rpcMock.mockReset()
+    localStorage.clear()
     createClientMock.mockReturnValue({ rpc: rpcMock })
   })
 
@@ -99,5 +100,102 @@ describe('Supabase legacy compatibility', () => {
 
     await expect(deletePost('post-1', 'owner-secret')).rejects.toBe(missingError)
     expect(rpcMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('게시글 생성은 복구 코드를 포함한 v3 RPC를 사용한다', async () => {
+    rpcMock.mockResolvedValueOnce({ data: [{ id: 'post-1' }], error: null })
+    const { createPost } = await loadClient()
+
+    await createPost({
+      id: 'post-1',
+      actorToken: 'a'.repeat(32),
+      ownerSecret: 'o'.repeat(32),
+      deviceSecret: 'd'.repeat(32),
+      authorLat: 37.5,
+      authorLng: 127,
+      lat: 37.5,
+      lng: 127,
+      category: '일상',
+      title: '제목',
+      content: '내용입니다',
+    })
+
+    expect(rpcMock).toHaveBeenCalledWith('create_post_v3', expect.objectContaining({
+      p_post_id: 'post-1',
+      p_owner_secret: 'o'.repeat(32),
+      p_device_secret: 'd'.repeat(32),
+    }))
+  })
+
+  it('답글도 직접 INSERT 없이 create_comment_v3 RPC로 등록한다', async () => {
+    rpcMock.mockResolvedValueOnce({ data: [{ id: 'comment-2' }], error: null })
+    const { createComment } = await loadClient()
+
+    await createComment('post-1', '답글 내용', {
+      id: 'comment-2',
+      actorToken: 'a'.repeat(32),
+      parentCommentId: 'comment-1',
+    })
+
+    expect(rpcMock).toHaveBeenCalledWith('create_comment_v3', {
+      p_comment_id: 'comment-2',
+      p_post_id: 'post-1',
+      p_actor_token: 'a'.repeat(32),
+      p_content: '답글 내용',
+      p_parent_comment_id: 'comment-1',
+    })
+  })
+
+  it('복구·신고·반응은 plaintext legacy 이름보다 버전형 RPC를 우선한다', async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: [{ target_type: 'post', target_id: 'post-1', owner_secret: 'owner' }], error: null })
+      .mockResolvedValueOnce({ data: { report_count: 1, hidden: false }, error: null })
+      .mockResolvedValueOnce({ data: { count: 1, reacted: true }, error: null })
+    const { restoreOwnership, reportPost, reactToComment } = await loadClient()
+
+    await restoreOwnership('d'.repeat(32))
+    await reportPost('post-1', 'r'.repeat(32))
+    await reactToComment('comment-1', '👍', 'd'.repeat(32))
+
+    expect(rpcMock).toHaveBeenNthCalledWith(1, 'restore_ownership_v2', {
+      p_device_secret: 'd'.repeat(32),
+      p_actor_token: expect.any(String),
+    })
+    expect(rpcMock).toHaveBeenNthCalledWith(2, 'report_post_v2', {
+      p_post_id: 'post-1',
+      p_reporter_secret: 'r'.repeat(32),
+    })
+    expect(rpcMock).toHaveBeenNthCalledWith(3, 'react_to_comment_v2', {
+      p_comment_id: 'comment-1',
+      p_emoji: '👍',
+      p_reactor_secret: 'd'.repeat(32),
+    })
+  })
+
+  it('푸시 구독 저장과 삭제는 hash 기반 v2 RPC를 사용한다', async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: true, error: null })
+      .mockResolvedValueOnce({ data: true, error: null })
+    const { upsertPushSubscription, deletePushSubscription } = await loadClient()
+
+    await upsertPushSubscription({
+      deviceSecret: 'd'.repeat(32),
+      endpoint: 'https://push.example/subscription',
+      p256dh: 'p'.repeat(32),
+      auth: 'a'.repeat(16),
+      interestAreas: [],
+      keywords: [],
+      quietStart: null,
+      quietEnd: null,
+    })
+    await deletePushSubscription('d'.repeat(32))
+
+    expect(rpcMock).toHaveBeenNthCalledWith(1, 'upsert_push_subscription_v2', expect.objectContaining({
+      p_device_secret: 'd'.repeat(32),
+      p_endpoint: 'https://push.example/subscription',
+    }))
+    expect(rpcMock).toHaveBeenNthCalledWith(2, 'delete_push_subscription_v2', {
+      p_device_secret: 'd'.repeat(32),
+    })
   })
 })

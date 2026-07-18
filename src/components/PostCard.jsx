@@ -16,8 +16,8 @@ function formatRelativeTime(dateStr, referenceTime) {
 // 목록에서 한눈에 훑을 수 있게 [카테고리 아이콘] 제목 / 거리·시간 / 반응수로 정리한 카드.
 // 실시간 이슈(웨이팅/혼잡/사건사고/교통)만 좌측에 카테고리 색 바를 둬서 구분하고, 유효시간의
 // 70% 이상 지난 글은 getFadeOpacity로 옅게 표시한다(지도 마커와 동일한 판정, categories.js 공유).
-// 카드 전체가 클릭 가능한 영역이라 안에 진짜 <button>(신고)을 또 넣을 수 없어(button-in-button은
-// 유효하지 않은 HTML이라 클릭 버블링이 꼬인다) 루트를 div+role="button"으로 뒀다.
+// 카드 열기와 신고를 서로 독립된 실제 button으로 둬서 키보드/보조기기에서 중첩 인터랙션이
+// 생기지 않게 한다.
 function PostCard({ post, onClick, distance = null, now }) {
   const referenceTime = now ?? Date.now()
   const isIncident = post.category === '사건사고'
@@ -31,28 +31,23 @@ function PostCard({ post, onClick, distance = null, now }) {
   ].filter(Boolean)
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
+    <article
       className={`post-card${isRealtime ? ' post-card--realtime' : ''}`}
       style={{ '--post-card-accent': color, opacity: getFadeOpacity(post, referenceTime) }}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          onClick()
-        }
-      }}
     >
-      <span className="post-card-icon" style={{ backgroundColor: color }} aria-hidden="true">
-        {getMarkerIcon(post)}
-      </span>
+      <button type="button" className="post-card-open" onClick={onClick}>
+        <span className="post-card-icon" style={{ backgroundColor: color }} aria-hidden="true">
+          {getMarkerIcon(post)}
+        </span>
 
-      <div className="post-card-main">
-        <span className="sr-only">{post.category}</span>
-        <p className="post-card-title">{post.title || post.content}</p>
-        <p className="post-card-subline">{sublineParts.join(' · ')}</p>
-      </div>
+        <span className="post-card-main">
+          <span className="sr-only">{post.category}</span>
+          <span className="post-card-title">{post.title || post.content}</span>
+          <span className="post-card-subline">{sublineParts.join(' · ')}</span>
+        </span>
+
+        {post.image_url && <img className="post-card-thumbnail" src={post.image_url} alt="" />}
+      </button>
 
       <div className="post-card-trailing">
         <ReportButton targetId={post.id} size="tiny" onReport={() => reportPost(post.id, getReporterSecret())} />
@@ -65,8 +60,7 @@ function PostCard({ post, onClick, distance = null, now }) {
         )}
       </div>
 
-      {post.image_url && <img className="post-card-thumbnail" src={post.image_url} alt="" />}
-    </div>
+    </article>
   )
 }
 
