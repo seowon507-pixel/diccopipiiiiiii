@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import MapView from './MapView.jsx'
 import CommunityPage from './components/CommunityPage.jsx'
 import ChatRoom from './components/ChatRoom.jsx'
@@ -35,6 +35,7 @@ import { maybeFuzzLocation } from './geoPrivacy'
 import { getDistanceMeters } from './geo'
 import { QUICK_POST_MESSAGES } from './categories'
 import { getOrCreateDeviceSecret } from './notifications'
+import { getSavedUiTheme, saveUiTheme } from './uiThemes'
 
 function createRequestId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -50,6 +51,15 @@ function createRequestId() {
 // 커뮤니티 등)에서 "글쓰기"를 눌러도 같은 흐름을 탄다 — 각 탭에서 업로드/등록 로직을 중복 구현하지 않는다.
 function App() {
   const [activeTab, setActiveTab] = useState('map')
+  const [uiTheme, setUiTheme] = useState(getSavedUiTheme)
+
+  useEffect(() => {
+    document.documentElement.dataset.uiTheme = uiTheme
+    saveUiTheme(uiTheme)
+    return () => {
+      delete document.documentElement.dataset.uiTheme
+    }
+  }, [uiTheme])
   // 온보딩을 보기 전에는 위치 권한 요청을 미룬다.
   const [onboarded, setOnboarded] = useState(hasSeenOnboarding)
   const {
@@ -414,7 +424,7 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app" data-ui-theme={uiTheme}>
       <div className="app-content">
         {postsStatus === 'error' && (
           <div className="app-status-banner" role="alert">
@@ -501,6 +511,9 @@ function App() {
             now={now}
             onOpenQuickPost={() => setQuickPostOpen(true)}
             quickPostDisabled={!isLocationTrusted}
+            active={activeTab === 'menu'}
+            uiTheme={uiTheme}
+            onUiThemeChange={setUiTheme}
           />
         </section>
 
@@ -529,7 +542,7 @@ function App() {
         {toast && <Toast key={toast.key} message={toast.message} onDismiss={() => setToast(null)} />}
       </div>
 
-      <TabBar activeTab={activeTab} onChange={handleTabChange} />
+      <TabBar activeTab={activeTab} onChange={handleTabChange} uiTheme={uiTheme} />
 
       {selectedPost && (
         <PostDetail

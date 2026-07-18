@@ -19,4 +19,12 @@ describe('TabBar', () => {
 
     expect(onChange).toHaveBeenCalledWith('menu')
   })
+
+  it('친근한 모바일 시안에서는 커뮤니티 목적지를 동네생활로 안내한다', () => {
+    render(<TabBar activeTab="community" onChange={() => {}} uiTheme="friendly" />)
+
+    const communityTab = screen.getByRole('button', { name: '동네생활 탭' })
+    expect(communityTab).toHaveAttribute('data-tab-key', 'community')
+    expect(communityTab).toHaveAttribute('aria-current', 'page')
+  })
 })

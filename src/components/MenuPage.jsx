@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
@@ -6,6 +6,7 @@ import RecoveryCode from './RecoveryCode.jsx'
 import AppIcon from './AppIcon.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
+import { BASE_UI_THEME, getUiThemeMeta, UI_THEME_OPTIONS } from '../uiThemes'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
@@ -17,6 +18,9 @@ function MenuPage({
   onOpenCreateModal,
   onOpenQuickPost,
   quickPostDisabled = false,
+  active = true,
+  uiTheme = BASE_UI_THEME,
+  onUiThemeChange,
   userLocation,
   now,
 }) {
@@ -25,6 +29,7 @@ function MenuPage({
   const [results, setResults] = useState([])
   const [searched, setSearched] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState(null)
+  const themeOptionsRef = useRef(null)
   // 위치 보호(현재 위치에 올리는 글/채팅을 대략적 위치로 흐리기) — 기본 ON, 로컬 저장.
   const [locationPrivacy, setLocationPrivacyState] = useState(getLocationPrivacy)
 
@@ -38,6 +43,25 @@ function MenuPage({
   // 이미 글이 있는 건물부터 먼저 보여준다(거리 제한 없음) — 건물을 눌러야 그 자리의
   // 커뮤니티(피드+글쓰기)로 들어간다. 새 장소를 찾고 싶으면 아래 검색을 쓴다.
   const buildings = useMemo(() => groupPostsByBuilding(posts), [posts])
+  const activeTheme = getUiThemeMeta(uiTheme)
+
+  // 좁은 화면에서도 현재 선택한 시안이 가로 목록 안에 바로 보이게 맞춘다.
+  useEffect(() => {
+    if (!active) return
+    const container = themeOptionsRef.current
+    const activeOption = container?.querySelector('[aria-pressed="true"]')
+    if (!container || !activeOption) return
+
+    const containerRect = container.getBoundingClientRect()
+    const activeRect = activeOption.getBoundingClientRect()
+    const activeLeft = activeRect.left - containerRect.left + container.scrollLeft
+    const left = Math.max(0, activeLeft - (container.clientWidth - activeRect.width) / 2)
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ left, behavior: 'auto' })
+    } else {
+      container.scrollLeft = left
+    }
+  }, [active, uiTheme])
 
   function handleOpenLocation() {
     setView('location')
@@ -94,6 +118,50 @@ function MenuPage({
               <span className="menu-hero-desc">소식·알림·내 기록을 한곳에서 관리합니다</span>
             </span>
           </header>
+
+          <section className="theme-lab" aria-label="디자인 실험실">
+            <div className="theme-lab-summary">
+              <span>
+                <span className="theme-lab-kicker">DESIGN LAB</span>
+                <strong>추가 UI 시안 5종</strong>
+              </span>
+              <span className="theme-lab-current">
+                {activeTheme.number} {activeTheme.name}
+              </span>
+            </div>
+            <div ref={themeOptionsRef} className="theme-lab-options" aria-label="UI 시안 선택">
+              {UI_THEME_OPTIONS.map((theme) => (
+                <button
+                  key={theme.key}
+                  type="button"
+                  className="theme-lab-option"
+                  data-preview-theme={theme.key}
+                  aria-pressed={uiTheme === theme.key}
+                  onClick={() => onUiThemeChange?.(theme.key)}
+                >
+                  <span className="theme-lab-option-topline">
+                    <span className="theme-lab-number">{theme.number}</span>
+                    <span className="theme-lab-swatches" aria-hidden="true">
+                      {theme.swatches.map((color) => (
+                        <span key={color} style={{ backgroundColor: color }} />
+                      ))}
+                    </span>
+                  </span>
+                  <strong>{theme.name}</strong>
+                  <span>{theme.description}</span>
+                </button>
+              ))}
+            </div>
+            {uiTheme !== BASE_UI_THEME && (
+              <button
+                type="button"
+                className="theme-lab-reset"
+                onClick={() => onUiThemeChange?.(BASE_UI_THEME)}
+              >
+                02 골목 게시판으로 돌아가기
+              </button>
+            )}
+          </section>
 
           <button
             type="button"
