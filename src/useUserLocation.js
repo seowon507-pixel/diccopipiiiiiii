@@ -6,12 +6,16 @@ const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978 }
 const DEV_LOCATION_OVERRIDE = { lat: 37.5575, lng: 126.9251 }
 
 // 지도/커뮤니티/채팅 탭이 모두 같은 위치를 공유하도록 App 레벨에서 한 번만 구독한다.
-export function useUserLocation() {
+// enabled가 false인 동안(온보딩 미완료)에는 위치 권한을 요청하지 않는다 — 앱 가치를 먼저
+// 설명한 뒤(Onboarding) 사용자가 "시작"을 눌러 enabled가 true가 되면 그때 요청을 시작한다.
+export function useUserLocation(enabled = true) {
   const [userLocation, setUserLocation] = useState(null)
   const [locationLoading, setLocationLoading] = useState(true)
   const [locationDenied, setLocationDenied] = useState(false)
 
   useEffect(() => {
+    if (!enabled) return
+
     if (import.meta.env.DEV) {
       setUserLocation(DEV_LOCATION_OVERRIDE)
       setLocationLoading(false)
@@ -39,7 +43,7 @@ export function useUserLocation() {
     )
 
     return () => navigator.geolocation.clearWatch(watchId)
-  }, [])
+  }, [enabled])
 
   return { userLocation, locationLoading, locationDenied }
 }

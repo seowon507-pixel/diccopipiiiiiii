@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getChatMessages, sendChatMessage, subscribeToChatMessages } from '../supabaseClient'
 import { getDistanceMeters } from '../geo'
+import { maybeFuzzLocation } from '../geoPrivacy'
 
 const DEFAULT_RADIUS_METERS = 1000
 const RADIUS_OPTIONS = [
@@ -60,7 +61,10 @@ function ChatRoom({ userLocation }) {
 
     setSending(true)
     try {
-      await sendChatMessage({ lat: userLocation.lat, lng: userLocation.lng, content: trimmed })
+      // 채팅은 항상 내 현재 위치 기반이라, 위치 보호가 켜져 있으면 대략적인 위치로 흐려서 보낸다.
+      // (반경 필터는 흐려진 위치 기준으로 동작 — 오차 80~200m라 동네 채팅 취지엔 영향 미미.)
+      const sendLocation = maybeFuzzLocation(userLocation)
+      await sendChatMessage({ lat: sendLocation.lat, lng: sendLocation.lng, content: trimmed })
       setText('')
     } catch (err) {
       console.error('[ChatRoom] 메시지 전송 실패', err)

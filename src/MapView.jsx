@@ -225,6 +225,7 @@ function MapView({
   selectedPostId,
   onOpenCommunity,
   onOpenCreateModal,
+  onOpenQuickPost,
   recenterTarget,
 }) {
   const mapContainerRef = useRef(null)
@@ -972,6 +973,7 @@ function MapView({
             fallbackPosts={activePosts}
             userLocation={userLocation}
             now={now}
+            onOpenQuickPost={onOpenQuickPost}
           />
         )}
       </div>
@@ -1031,13 +1033,6 @@ function MapView({
           onWrite={() => {
             setSelectedPinId(null)
             onOpenCreateModal(selectedPin.lat, selectedPin.lng, {
-              onConvertPin: () => convertPinToPost(selectedPin.id),
-            })
-          }}
-          onAskQuestion={() => {
-            setSelectedPinId(null)
-            onOpenCreateModal(selectedPin.lat, selectedPin.lng, {
-              presetCategory: '동네질문',
               onConvertPin: () => convertPinToPost(selectedPin.id),
             })
           }}

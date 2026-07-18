@@ -4,6 +4,7 @@ import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
 import RecoveryCode from './RecoveryCode.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
+import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
@@ -13,6 +14,14 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
   const [results, setResults] = useState([])
   const [searched, setSearched] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState(null)
+  // 위치 보호(현재 위치에 올리는 글/채팅을 대략적 위치로 흐리기) — 기본 ON, 로컬 저장.
+  const [locationPrivacy, setLocationPrivacyState] = useState(getLocationPrivacy)
+
+  function toggleLocationPrivacy() {
+    const next = !locationPrivacy
+    setLocationPrivacy(next)
+    setLocationPrivacyState(next)
+  }
 
   const kakaoReady = Boolean(window.kakao?.maps?.services)
   // 이미 글이 있는 건물부터 먼저 보여준다(거리 제한 없음) — 건물을 눌러야 그 자리의
@@ -94,6 +103,25 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
               <span className="menu-card-text">
                 <span className="menu-card-label">복구 코드</span>
                 <span className="menu-card-desc">폰을 바꿔도 내 글/핀을 계속 관리해요</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className="menu-card"
+              onClick={toggleLocationPrivacy}
+              aria-pressed={locationPrivacy}
+            >
+              <span className="menu-card-icon">🛡️</span>
+              <span className="menu-card-text">
+                <span className="menu-card-label">내 위치 보호</span>
+                <span className="menu-card-desc">
+                  {locationPrivacy
+                    ? '현재 위치에 올리는 글·채팅을 대략적인 위치로 표시해요'
+                    : '정확한 현재 위치가 그대로 표시돼요'}
+                </span>
+              </span>
+              <span className={`menu-card-toggle${locationPrivacy ? ' on' : ''}`} aria-hidden="true">
+                <span className="menu-card-toggle-knob" />
               </span>
             </button>
           </div>

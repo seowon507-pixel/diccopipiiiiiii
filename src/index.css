@@ -511,6 +511,36 @@ textarea {
   color: var(--color-gray-350);
 }
 
+/* 메뉴 카드 우측 토글 스위치 (내 위치 보호) */
+.menu-card-toggle {
+  flex-shrink: 0;
+  margin-left: auto;
+  width: 44px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  background: var(--color-gray-200);
+  padding: 3px;
+  transition: background 0.15s ease-out;
+}
+
+.menu-card-toggle.on {
+  background: var(--color-accent);
+}
+
+.menu-card-toggle-knob {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-circle);
+  background: var(--color-white);
+  box-shadow: var(--shadow-control);
+  transition: transform 0.15s ease-out;
+}
+
+.menu-card-toggle.on .menu-card-toggle-knob {
+  transform: translateX(18px);
+}
+
 /* 알림 설정 (관심 지역/키워드/조용한 시간) */
 
 .notification-settings {
@@ -3067,4 +3097,181 @@ textarea {
   min-height: 0;
   overflow-y: auto;
   padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+/* 콜드 스타트 빈 동네 안내 (지도 하단 시트) */
+.empty-neighborhood {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-4) var(--space-2) var(--space-2);
+}
+
+.empty-neighborhood-emoji {
+  font-size: 2rem;
+  margin-bottom: var(--space-2);
+}
+
+.empty-neighborhood-title {
+  font-size: 1rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-800);
+  margin: 0 0 var(--space-1);
+}
+
+.empty-neighborhood-desc {
+  font-size: 0.85rem;
+  color: var(--color-gray-400);
+  line-height: 1.45;
+  margin: 0 0 var(--space-4);
+}
+
+.empty-neighborhood-cta {
+  width: 100%;
+  max-width: 280px;
+  min-height: 46px;
+  border: none;
+  border-radius: var(--radius-xl);
+  background: var(--color-accent);
+  color: var(--color-white);
+  font-size: 0.95rem;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.empty-neighborhood-cta:active {
+  opacity: 0.9;
+}
+
+.empty-neighborhood .trending-fallback {
+  width: 100%;
+  margin-top: var(--space-5);
+  text-align: left;
+}
+
+/* 첫 실행 온보딩 화면 — 위치 권한 요청 전에 앱 가치를 먼저 설명한다. */
+.onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-white);
+  padding: calc(var(--space-6) + env(safe-area-inset-top, 0px)) var(--space-5)
+    calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+}
+
+.onboarding-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-6);
+  max-width: 420px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.onboarding-hero {
+  text-align: center;
+}
+
+.onboarding-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-2xl);
+  background: var(--color-accent-tint);
+  font-size: 2.2rem;
+  margin-bottom: var(--space-4);
+}
+
+.onboarding-title {
+  font-size: 1.6rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gray-900);
+  margin: 0 0 var(--space-2);
+}
+
+.onboarding-tagline {
+  font-size: 0.98rem;
+  color: var(--color-gray-400);
+  margin: 0;
+}
+
+.onboarding-features {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.onboarding-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3-5);
+}
+
+.onboarding-feature-emoji {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-tint);
+  font-size: 1.4rem;
+}
+
+.onboarding-feature-title {
+  font-size: 1rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-gray-800);
+  margin: 0 0 var(--space-1);
+}
+
+.onboarding-feature-desc {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--color-gray-400);
+  margin: 0;
+}
+
+.onboarding-footer {
+  flex-shrink: 0;
+  max-width: 420px;
+  width: 100%;
+  margin: var(--space-5) auto 0;
+}
+
+.onboarding-start {
+  width: 100%;
+  min-height: 52px;
+  border: none;
+  border-radius: var(--radius-xl);
+  background: var(--color-accent);
+  color: var(--color-white);
+  font-size: 1.02rem;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.onboarding-start:active {
+  opacity: 0.9;
+}
+
+.onboarding-note {
+  font-size: 0.78rem;
+  color: var(--color-gray-350);
+  text-align: center;
+  line-height: 1.45;
+  margin: var(--space-3) 0 0;
 }

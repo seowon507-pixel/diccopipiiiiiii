@@ -8,10 +8,13 @@ import PostModal from './components/PostModal.jsx'
 import QuickPostSheet from './components/QuickPostSheet.jsx'
 import Toast from './components/Toast.jsx'
 import TabBar from './components/TabBar.jsx'
+import Onboarding from './components/Onboarding.jsx'
+import { hasSeenOnboarding, markOnboardingSeen } from './onboarding'
 import { useUserLocation } from './useUserLocation'
 import { usePosts, EXTERNAL_DISTANCE_METERS } from './usePosts'
 import { createPost, updatePost, uploadPostImage, incrementConfirmCount, incrementLikes, deletePost } from './supabaseClient'
 import { findNearbyDuplicate, saveLastPost } from './abuseCheck'
+import { maybeFuzzLocation } from './geoPrivacy'
 import { getOwnerSecret, forgetOwnership, isMyPost, saveOwnership, generateOwnerSecret } from './myPosts'
 import { getDistanceMeters } from './geo'
 import { QUICK_POST_MESSAGES } from './categories'
@@ -22,7 +25,10 @@ import { getOrCreateDeviceSecret } from './notifications'
 // 커뮤니티 등)에서 "글쓰기"를 눌러도 같은 흐름을 탄다 — 각 탭에서 업로드/등록 로직을 중복 구현하지 않는다.
 function App() {
   const [activeTab, setActiveTab] = useState('map')
-  const { userLocation, locationLoading, locationDenied } = useUserLocation()
+  // 온보딩을 아직 안 봤으면 위치 권한 요청을 미룬다(useUserLocation의 enabled=false).
+  // "시작하기"를 누르면 onboarded=true가 되면서 그때 위치 요청이 나간다.
+  const [onboarded, setOnboarded] = useState(hasSeenOnboarding)
+  const { userLocation, locationLoading, locationDenied } = useUserLocation(onboarded)
   const { posts, setPosts, activePosts, nearbyPosts, communityPosts, now, activeCategories, toggleCategory } = usePosts(userLocation)
 
   const [selectedPostId, setSelectedPostId] = useState(null)
@@ -36,6 +42,9 @@ function App() {
   // 핀에서 시작한 글쓰기가 성공하면 그 빈 핀을 지워야 한다 — 핀은 MapView가 자체 관리하는
   // 지도 전용 개념이라, 변환 콜백만 여기서 넘겨받아 성공 시 호출한다.
   const [pendingPinConvert, setPendingPinConvert] = useState(null)
+  // 이 글의 위치가 "내 현재 위치"에서 온 것인지(→ 위치 보호 시 흐림 대상). 지도에서 직접 찍거나
+  // 장소검색으로 고른 위치는 false라 정확히 등록된다.
+  const [pendingBlurLocation, setPendingBlurLocation] = useState(false)
   const [quickCategory, setQuickCategory] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
@@ -111,10 +120,14 @@ function App() {
 
     setQuickSubmitting(true)
     try {
+      // 빠른 등록은 항상 "내 현재 위치"에 올리는 글이라, 위치 보호가 켜져 있으면 대략적인
+      // 위치로 흐려서 등록한다(집 등 정확한 현재 좌표 노출 방지). 지도에서 직접 찍은 위치가
+      // 아니므로 흐려도 사용자 의도와 어긋나지 않는다.
+      const postLocation = maybeFuzzLocation(userLocation)
       const ownerSecret = generateOwnerSecret()
       const created = await createPost({
-        lat: userLocation.lat,
-        lng: userLocation.lng,
+        lat: postLocation.lat,
+        lng: postLocation.lng,
         category,
         title: null,
         content: QUICK_POST_MESSAGES[category],
@@ -124,12 +137,12 @@ function App() {
         ownerSecret,
         deviceSecret: getOrCreateDeviceSecret(),
       })
-      saveLastPost({ id: created.id, lat: userLocation.lat, lng: userLocation.lng })
+      saveLastPost({ id: created.id, lat: postLocation.lat, lng: postLocation.lng })
       saveOwnership(created.id, ownerSecret)
 
       setQuickPostOpen(false)
       setActiveTab('map')
-      setRecenterTarget({ lat: userLocation.lat, lng: userLocation.lng })
+      setRecenterTarget({ lat: postLocation.lat, lng: postLocation.lng })
       setToast({ key: created.id, message: '등록됐어요!' })
     } catch (err) {
       console.error('[App] 빠른 등록 실패', err)
@@ -143,17 +156,19 @@ function App() {
   // 모달(제목/내용/사진 다 채우는 openCreateModal)을 그대로 연다.
   function handleOpenDetailedFromQuick() {
     setQuickPostOpen(false)
-    if (userLocation) openCreateModal(userLocation.lat, userLocation.lng)
+    // 빠른 등록에서 이어지는 자세히 쓰기도 "내 현재 위치" 기준이라 위치 보호(흐림) 대상이다.
+    if (userLocation) openCreateModal(userLocation.lat, userLocation.lng, { blurLocation: true })
   }
 
   // 글쓰기 모달을 연다 — 지도 핀 글쓰기/질문 등록, 장소검색 "여기에 글쓰기",
   // 위치·건물별 커뮤니티 "글쓰기" 등 어디서든 이 함수 하나로 진입한다.
   // 5분 이내 반경 50m 안에 내가 쓴 글이 있으면 새 글 대신 그 글을 수정하도록 연다.
   // onConvertPin을 넘기면(핀에서 시작한 경우) 작성 성공 시 그 핀을 지우도록 호출한다.
-  function openCreateModal(lat, lng, { presetCategory = null, onConvertPin = null } = {}) {
+  function openCreateModal(lat, lng, { presetCategory = null, onConvertPin = null, blurLocation = false } = {}) {
     setSubmitError(null)
     setPendingPosition({ lat, lng })
     setPendingPinConvert(() => onConvertPin)
+    setPendingBlurLocation(blurLocation)
 
     const duplicate = findNearbyDuplicate(lat, lng)
     const existingPost = duplicate ? posts.find((post) => post.id === duplicate.id) : null
@@ -184,6 +199,7 @@ function App() {
     setSubmitError(null)
     setEditTarget(null)
     setPendingPinConvert(null)
+    setPendingBlurLocation(false)
     setQuickCategory(null)
   }
 
@@ -201,15 +217,18 @@ function App() {
         await updatePost(editTarget.id, { category, title, content, imageUrl, icon })
         saveLastPost({ id: editTarget.id, lat: editTarget.lat, lng: editTarget.lng })
       } else {
+        // "내 현재 위치"에서 연 글(pendingBlurLocation)만 위치 보호 대상. 지도에서 찍거나
+        // 장소검색으로 고른 위치는 흐리지 않고 그대로 등록한다.
+        const postLocation = pendingBlurLocation ? maybeFuzzLocation(pendingPosition) : pendingPosition
         const distanceFromMe = userLocation
-          ? getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng)
+          ? getDistanceMeters(userLocation.lat, userLocation.lng, postLocation.lat, postLocation.lng)
           : 0
         const postType = distanceFromMe > EXTERNAL_DISTANCE_METERS ? 'external' : 'local'
         const ownerSecret = generateOwnerSecret()
 
         const created = await createPost({
-          lat: pendingPosition.lat,
-          lng: pendingPosition.lng,
+          lat: postLocation.lat,
+          lng: postLocation.lng,
           category,
           title,
           content,
@@ -219,7 +238,7 @@ function App() {
           ownerSecret,
           deviceSecret: getOrCreateDeviceSecret(),
         })
-        saveLastPost({ id: created.id, lat: pendingPosition.lat, lng: pendingPosition.lng })
+        saveLastPost({ id: created.id, lat: postLocation.lat, lng: postLocation.lng })
         saveOwnership(created.id, ownerSecret)
       }
 
@@ -239,6 +258,18 @@ function App() {
   const willBeExternal = !editTarget && Boolean(pendingPosition) && Boolean(userLocation)
     && getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng) > EXTERNAL_DISTANCE_METERS
 
+  // 온보딩 미완료 시 앱(위치 요청 포함) 대신 소개 화면을 먼저 보여준다.
+  if (!onboarded) {
+    return (
+      <Onboarding
+        onStart={() => {
+          markOnboardingSeen()
+          setOnboarded(true)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="app">
       <div className="app-content">
@@ -255,6 +286,7 @@ function App() {
             selectedPostId={selectedPostId}
             onOpenCommunity={() => setActiveTab('community')}
             onOpenCreateModal={openCreateModal}
+            onOpenQuickPost={() => setQuickPostOpen(true)}
             recenterTarget={recenterTarget}
           />
         )}

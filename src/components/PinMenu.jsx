@@ -1,5 +1,5 @@
 // 아직 글이 없는 "빈 핀"을 클릭했을 때 뜨는 액션 메뉴.
-function PinMenu({ onWrite, onAskQuestion, onDelete, onClose, deleting }) {
+function PinMenu({ onWrite, onDelete, onClose, deleting }) {
   return (
     <div className="pin-menu-backdrop" onClick={onClose}>
       <div className="pin-menu" onClick={(event) => event.stopPropagation()}>
@@ -7,9 +7,6 @@ function PinMenu({ onWrite, onAskQuestion, onDelete, onClose, deleting }) {
 
         <button type="button" className="pin-menu-action" onClick={onWrite}>
           ✏️ 글쓰기
-        </button>
-        <button type="button" className="pin-menu-action" onClick={onAskQuestion}>
-          ❓ 질문 등록
         </button>
         <button
           type="button"
