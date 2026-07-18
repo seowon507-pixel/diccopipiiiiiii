@@ -1,7 +1,7 @@
 import { render, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { watchNearbyChatMessages } from '../supabaseClient'
-import ChatRoom, { isChatNearBottom, mergeChatMessages } from './ChatRoom'
+import ChatRoom, { isChatNearBottom, mergeChatMessages, scrollChatToBottom } from './ChatRoom'
 
 vi.mock('../supabaseClient', () => ({
   sendChatMessage: vi.fn(),
@@ -37,6 +37,17 @@ describe('mergeChatMessages', () => {
   it('only sticks to the bottom when the reader is near the latest message', () => {
     expect(isChatNearBottom({ scrollHeight: 1000, scrollTop: 850, clientHeight: 100 })).toBe(true)
     expect(isChatNearBottom({ scrollHeight: 1000, scrollTop: 400, clientHeight: 100 })).toBe(false)
+  })
+
+  it('scrolls with a DOM fallback when scrollTo is unavailable', () => {
+    const modernElement = { scrollHeight: 500, scrollTo: vi.fn() }
+    const fallbackElement = { scrollHeight: 700, scrollTop: 0 }
+
+    scrollChatToBottom(modernElement)
+    scrollChatToBottom(fallbackElement)
+
+    expect(modernElement.scrollTo).toHaveBeenCalledWith({ top: 500 })
+    expect(fallbackElement.scrollTop).toBe(700)
   })
 
   it('starts polling only while the chat tab is active', async () => {

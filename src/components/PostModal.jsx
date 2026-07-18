@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { REALTIME_CATEGORIES, FREE_CATEGORIES, CATEGORY_COLORS, PIN_ICONS } from '../categories'
+import {
+  REALTIME_CATEGORIES,
+  FREE_CATEGORIES,
+  CATEGORY_COLORS,
+  CATEGORY_ON_COLOR_TEXT,
+  PIN_ICONS,
+} from '../categories'
 
 const TITLE_MAX_LENGTH = 40
 const CONTENT_MAX_LENGTH = 500
@@ -152,7 +158,11 @@ function PostModal({
               key={name}
               type="button"
               className={`post-modal-category-chip${category === name ? ' selected' : ''}`}
-              style={category === name ? { backgroundColor: CATEGORY_COLORS[name], borderColor: CATEGORY_COLORS[name] } : undefined}
+              style={category === name ? {
+                backgroundColor: CATEGORY_COLORS[name],
+                borderColor: CATEGORY_COLORS[name],
+                color: CATEGORY_ON_COLOR_TEXT[name],
+              } : undefined}
               aria-pressed={category === name}
               onClick={() => setCategory(name)}
             >

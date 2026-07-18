@@ -1,4 +1,4 @@
-import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR } from '../categories'
+import { CATEGORY_LABEL_COLORS, DEFAULT_CATEGORY_COLOR } from '../categories'
 
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleString('ko-KR', {
@@ -15,7 +15,7 @@ function PostCard({ post, onClick }) {
       <div className="post-card-top">
         <span
           className="post-card-category"
-          style={{ color: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR }}
+          style={{ color: CATEGORY_LABEL_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR }}
         >
           {post.category}
         </span>

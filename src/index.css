@@ -906,6 +906,38 @@ textarea:focus-visible {
   overflow-y: auto;
 }
 
+.place-search-results-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 4px 14px;
+  background: #fff;
+  color: #555;
+  font-size: 0.76rem;
+  font-weight: 600;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.place-search-results-close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #555;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.place-search-results-close:hover,
+.place-search-results-close:focus-visible {
+  background: #f0f3f2;
+}
+
 .place-search-result-name {
   font-size: 0.88rem;
   font-weight: 600;

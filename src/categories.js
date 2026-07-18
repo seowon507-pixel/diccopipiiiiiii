@@ -19,6 +19,29 @@ export const CATEGORY_COLORS = {
   취미: '#8C4C74',
 }
 
+// 채워진 카테고리 칩 위에서 WCAG AA 대비를 확보하는 전경색.
+export const CATEGORY_ON_COLOR_TEXT = {
+  웨이팅: '#FFFFFF',
+  혼잡: '#111111',
+  사건사고: '#FFFFFF',
+  교통: '#111111',
+  동네질문: '#FFFFFF',
+  동네소식: '#111111',
+  맛집: '#111111',
+  일상: '#111111',
+  취미: '#FFFFFF',
+}
+
+// 흰 배경의 작은 카테고리 라벨은 원래 색보다 어두운 변형을 사용한다.
+export const CATEGORY_LABEL_COLORS = {
+  ...CATEGORY_COLORS,
+  혼잡: '#765121',
+  교통: '#276B4D',
+  동네소식: '#28626A',
+  맛집: '#9B3F2E',
+  일상: '#635C24',
+}
+
 export const DEFAULT_CATEGORY_COLOR = '#666666'
 
 // 카테고리별 유효시간(분). 여기 없는 카테고리(자유주제)는 만료되지 않는다.

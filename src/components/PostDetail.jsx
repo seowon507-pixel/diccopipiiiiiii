@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, categoryHasExpiry } from '../categories'
+import { CATEGORY_LABEL_COLORS, DEFAULT_CATEGORY_COLOR, categoryHasExpiry } from '../categories'
 import { getComments, createComment, subscribeToComments } from '../supabaseClient'
 import { getActorToken } from '../myPosts'
 
@@ -50,9 +50,16 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
   const closeRef = useRef(onClose)
   const busyRef = useRef(false)
   const confirmDeleteRef = useRef(false)
+  const deleteTriggerRef = useRef(null)
+  const cancelDeleteRef = useRef(null)
   closeRef.current = onClose
   busyRef.current = Boolean(deleting || submittingComment)
   confirmDeleteRef.current = confirmDelete
+
+  function closeDeleteConfirmation() {
+    setConfirmDelete(false)
+    window.requestAnimationFrame(() => deleteTriggerRef.current?.focus())
+  }
 
   useEffect(() => {
     const previousFocus = document.activeElement
@@ -61,7 +68,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
         if (confirmDeleteRef.current) {
-          setConfirmDelete(false)
+          closeDeleteConfirmation()
         } else if (!busyRef.current) {
           closeRef.current()
         }
@@ -90,6 +97,12 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
       previousFocus?.focus?.()
     }
   }, [post.id])
+
+  useEffect(() => {
+    if (!confirmDelete) return undefined
+    const focusTimer = window.requestAnimationFrame(() => cancelDeleteRef.current?.focus())
+    return () => window.cancelAnimationFrame(focusTimer)
+  }, [confirmDelete])
 
   useEffect(() => {
     const generation = requestGenerationRef.current + 1
@@ -194,7 +207,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
         <div className="post-detail-header">
           <span
             className="post-detail-category"
-            style={{ color: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR }}
+            style={{ color: CATEGORY_LABEL_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR }}
           >
             {post.category}
           </span>
@@ -289,13 +302,14 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
             {confirmDelete ? (
               <div className="post-detail-delete-confirm" role="group" aria-label="게시글 삭제 확인">
                 <span>정말 삭제할까요?</span>
-                <button type="button" disabled={deleting} onClick={() => setConfirmDelete(false)}>취소</button>
+                <button ref={cancelDeleteRef} type="button" disabled={deleting} onClick={closeDeleteConfirmation}>취소</button>
                 <button type="button" className="danger" disabled={deleting} onClick={onDelete}>
                   {deleting ? '삭제 중...' : '삭제'}
                 </button>
               </div>
             ) : (
               <button
+                ref={deleteTriggerRef}
                 type="button"
                 className="post-detail-delete"
                 disabled={deleting || submittingComment}

@@ -35,6 +35,16 @@ export function isChatNearBottom(element, threshold = 80) {
   return element.scrollHeight - element.scrollTop - element.clientHeight <= threshold
 }
 
+export function scrollChatToBottom(element) {
+  if (!element) return
+  const top = element.scrollHeight
+  if (typeof element.scrollTo === 'function') {
+    element.scrollTo({ top })
+  } else {
+    element.scrollTop = top
+  }
+}
+
 function locationMessage(status) {
   if (status === 'loading') return '현재 위치를 확인하고 있어요…'
   if (status === 'denied') return '위치 권한을 허용해야 동네 채팅을 사용할 수 있어요.'
@@ -131,7 +141,7 @@ function ChatRoom({ active = true, displayLocation, trustedLocation, locationSta
     const list = listRef.current
     if (!list || (!forceScrollRef.current && !stickToBottomRef.current)) return undefined
     const frame = window.requestAnimationFrame(() => {
-      list.scrollTo({ top: list.scrollHeight })
+      scrollChatToBottom(list)
       stickToBottomRef.current = true
       forceScrollRef.current = false
     })

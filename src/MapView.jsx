@@ -247,7 +247,8 @@ function MapView({
   const useFallbackMap = !KAKAO_MAP_KEY || Boolean(mapLoadError)
 
   useEffect(() => {
-    if (backendConfigurationError) return undefined
+    if (!active || backendConfigurationError) return undefined
+    setNow(Date.now())
     const interval = setInterval(() => {
       setNow(Date.now())
       // 만료된(작성 후 MAP_VISIBLE_MINUTES 지난) 빈 핀을 서버에서 실제로 정리한다.
@@ -257,10 +258,11 @@ function MapView({
       })
     }, 30 * 1000)
     return () => clearInterval(interval)
-  }, [])
+  }, [active])
 
   // 아직 글이 없는 "빈 핀" 목록도 함께 불러온다.
   useEffect(() => {
+    if (!active) return undefined
     if (backendConfigurationError) {
       setPins([])
       setPinLoadError(null)
@@ -282,10 +284,11 @@ function MapView({
     return () => {
       cancelled = true
     }
-  }, [pinRetryKey])
+  }, [active, pinRetryKey])
 
   // 다른 사용자가 만들거나 지운 빈 핀을 실시간으로 반영한다.
   useEffect(() => {
+    if (!active || backendConfigurationError) return undefined
     const unsubscribe = subscribeToPinChanges({
       onInsert: (newPin) => {
         setPins((prev) => (prev.some((pin) => pin.id === newPin.id) ? prev : [newPin, ...prev]))
@@ -296,7 +299,7 @@ function MapView({
       },
     })
     return unsubscribe
-  }, [])
+  }, [active])
 
   // 빈 핀도 게시글과 동일하게 반경 1km 이내만 지도에 표시하고, 작성 후 MAP_VISIBLE_MINUTES(기본 1시간)가
   // 지나면 실제 삭제(위 deleteExpiredPins)를 기다리지 않고 클라이언트에서 먼저 숨긴다.

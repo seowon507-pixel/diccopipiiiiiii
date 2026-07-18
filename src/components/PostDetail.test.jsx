@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import PostDetail, { mergeComments } from './PostDetail'
 
@@ -28,7 +28,7 @@ describe('PostDetail owner actions', () => {
     confirm_count: 0,
   }
 
-  it('provides direct edit and confirms before deleting', () => {
+  it('provides direct edit and confirms before deleting without losing keyboard focus', async () => {
     const onEdit = vi.fn()
     const onDelete = vi.fn()
     render(
@@ -46,9 +46,17 @@ describe('PostDetail owner actions', () => {
     fireEvent.click(screen.getByRole('button', { name: '내 글 수정하기' }))
     expect(onEdit).toHaveBeenCalledOnce()
 
-    fireEvent.click(screen.getByRole('button', { name: '내 글 삭제하기' }))
+    const deleteTrigger = screen.getByRole('button', { name: '내 글 삭제하기' })
+    deleteTrigger.focus()
+    fireEvent.click(deleteTrigger)
     expect(onDelete).not.toHaveBeenCalled()
     expect(screen.getByText('정말 삭제할까요?')).toBeInTheDocument()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '취소' })).toHaveFocus())
+    fireEvent.click(screen.getByRole('button', { name: '취소' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '내 글 삭제하기' })).toHaveFocus())
+
+    fireEvent.click(screen.getByRole('button', { name: '내 글 삭제하기' }))
 
     fireEvent.click(screen.getByRole('button', { name: '삭제' }))
     expect(onDelete).toHaveBeenCalledOnce()

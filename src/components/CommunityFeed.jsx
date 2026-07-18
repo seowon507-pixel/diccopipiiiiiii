@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CATEGORIES, CATEGORY_COLORS } from '../categories'
+import { CATEGORIES, CATEGORY_COLORS, CATEGORY_ON_COLOR_TEXT } from '../categories'
 import PostCard from './PostCard.jsx'
 
 const SORT_OPTIONS = [
@@ -95,7 +95,11 @@ function CommunityFeed({
               key={name}
               type="button"
               className={`community-category-chip${active ? ' active' : ''}`}
-              style={active ? { backgroundColor: CATEGORY_COLORS[name], borderColor: CATEGORY_COLORS[name] } : undefined}
+              style={active ? {
+                backgroundColor: CATEGORY_COLORS[name],
+                borderColor: CATEGORY_COLORS[name],
+                color: CATEGORY_ON_COLOR_TEXT[name],
+              } : undefined}
               aria-pressed={active}
               onClick={() => onToggleCategory?.(name)}
             >
