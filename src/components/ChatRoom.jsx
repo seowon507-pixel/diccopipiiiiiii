@@ -37,7 +37,7 @@ function locationMessage(status) {
 }
 
 // 신뢰할 수 있는 현재 위치 1km 이내 메시지만 조회하고 주기적으로 서버 snapshot과 병합한다.
-function ChatRoom({ trustedLocation, locationStatus, onRetryLocation }) {
+function ChatRoom({ displayLocation, trustedLocation, locationStatus, onRetryLocation }) {
   const [messages, setMessages] = useState([])
   const [messagesStatus, setMessagesStatus] = useState('idle')
   const [messagesError, setMessagesError] = useState(null)
@@ -51,15 +51,19 @@ function ChatRoom({ trustedLocation, locationStatus, onRetryLocation }) {
   const pendingMessageIdRef = useRef(null)
   const actorTokenRef = useRef(null)
 
-  const lat = trustedLocation?.lat
-  const lng = trustedLocation?.lng
-  const hasTrustedLocation = Number.isFinite(lat) && Number.isFinite(lng)
+  const readLocation = trustedLocation ?? displayLocation
+  const readLat = readLocation?.lat
+  const readLng = readLocation?.lng
+  const trustedLat = trustedLocation?.lat
+  const trustedLng = trustedLocation?.lng
+  const hasReadLocation = Number.isFinite(readLat) && Number.isFinite(readLng)
+  const hasTrustedLocation = Number.isFinite(trustedLat) && Number.isFinite(trustedLng)
 
   useEffect(() => {
     const generation = requestGenerationRef.current + 1
     requestGenerationRef.current = generation
 
-    if (!hasTrustedLocation) {
+    if (!hasReadLocation) {
       setMessages([])
       setMessagesStatus('idle')
       setMessagesError(null)
@@ -90,8 +94,8 @@ function ChatRoom({ trustedLocation, locationStatus, onRetryLocation }) {
 
     try {
       stopWatching = watchNearbyChatMessages({
-        lat,
-        lng,
+        lat: readLat,
+        lng: readLng,
         radiusMeters: NEARBY_RADIUS_METERS,
         intervalMs: CHAT_POLL_INTERVAL_MS,
         onMessages: acceptSnapshot,
@@ -105,8 +109,8 @@ function ChatRoom({ trustedLocation, locationStatus, onRetryLocation }) {
     }
 
     getNearbyChatMessages({
-      lat,
-      lng,
+      lat: readLat,
+      lng: readLng,
       radiusMeters: NEARBY_RADIUS_METERS,
       limit: 200,
     }).then(acceptSnapshot).catch(handleError)
@@ -115,7 +119,7 @@ function ChatRoom({ trustedLocation, locationStatus, onRetryLocation }) {
       active = false
       if (typeof stopWatching === 'function') stopWatching()
     }
-  }, [hasTrustedLocation, lat, lng, refreshGeneration])
+  }, [hasReadLocation, readLat, readLng, refreshGeneration])
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
@@ -136,8 +140,8 @@ function ChatRoom({ trustedLocation, locationStatus, onRetryLocation }) {
       const created = await sendChatMessage({
         id,
         actorToken: actorTokenRef.current,
-        lat,
-        lng,
+        lat: trustedLat,
+        lng: trustedLng,
         content: trimmed,
       })
       setMessages((current) => mergeChatMessages(current, [created]))
@@ -167,21 +171,22 @@ function ChatRoom({ trustedLocation, locationStatus, onRetryLocation }) {
         {!hasTrustedLocation && (
           <div className="chat-room-empty">
             <p>{locationMessage(locationStatus)}</p>
+            {hasReadLocation && <p>서울시청 주변 대화는 읽을 수 있지만 전송은 위치 확인 후 가능해요.</p>}
             {locationStatus !== 'loading' && onRetryLocation && (
               <button type="button" onClick={onRetryLocation}>위치 다시 확인</button>
             )}
           </div>
         )}
-        {hasTrustedLocation && messagesStatus === 'loading' && (
+        {hasReadLocation && messagesStatus === 'loading' && (
           <p className="chat-room-empty" role="status">대화를 불러오는 중이에요…</p>
         )}
-        {hasTrustedLocation && messagesStatus === 'error' && (
+        {hasReadLocation && messagesStatus === 'error' && (
           <div className="chat-room-empty" role="alert">
             <p>대화를 불러오지 못했어요.</p>
             <button type="button" onClick={() => setRefreshGeneration((value) => value + 1)}>다시 시도</button>
           </div>
         )}
-        {hasTrustedLocation && messagesStatus === 'ready' && messages.length === 0 && (
+        {hasReadLocation && messagesStatus === 'ready' && messages.length === 0 && (
           <p className="chat-room-empty">아직 대화가 없어요. 첫 메시지를 남겨보세요.</p>
         )}
         {messages.map((message) => (

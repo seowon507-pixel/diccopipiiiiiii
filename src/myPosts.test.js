@@ -16,11 +16,12 @@ describe('post ownership storage', () => {
     expect(isMyPost('post-1')).toBe(false)
   })
 
-  it('reports storage failures to the caller', () => {
+  it('keeps ownership in memory when persistent storage is blocked', () => {
     const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('blocked', 'QuotaExceededError')
     })
-    expect(saveOwnership('post-1', 'secret-1')).toBe(false)
+    expect(saveOwnership('post-memory', 'secret-memory')).toBe(true)
+    expect(getOwnerSecret('post-memory')).toBe('secret-memory')
     spy.mockRestore()
   })
 

@@ -5,23 +5,31 @@ const PIN_STORAGE_KEY = 'woorimadong_my_pins'
 const ACTOR_STORAGE_KEY = 'woorimadong_actor_token'
 
 let inMemoryActorToken = null
+const inMemoryOwnership = {
+  [POST_STORAGE_KEY]: {},
+  [PIN_STORAGE_KEY]: {},
+}
 
 function readMap(storageKey) {
+  const memoryMap = inMemoryOwnership[storageKey] ?? {}
   try {
     const raw = localStorage.getItem(storageKey)
-    return raw ? JSON.parse(raw) : {}
+    const parsed = raw ? JSON.parse(raw) : {}
+    const storedMap = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+    return { ...storedMap, ...memoryMap }
   } catch {
-    return {}
+    return { ...memoryMap }
   }
 }
 
 function writeMap(storageKey, map) {
+  inMemoryOwnership[storageKey] = { ...map }
   try {
     localStorage.setItem(storageKey, JSON.stringify(map))
-    return true
   } catch {
-    return false
+    // Private/locked-down browsers can reject storage. Ownership remains available for this tab session.
   }
+  return true
 }
 
 // 게시글 작성 직후 소유권 토큰을 기록한다.

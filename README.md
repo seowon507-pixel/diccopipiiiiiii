@@ -20,6 +20,8 @@ npm run dev
 
 설정이 없거나 잘못된 경우 앱은 빈 화면 대신 연결 설정 오류를 표시합니다. 개발 중 샘플 게시글이 필요할 때만 `VITE_USE_DUMMY_DATA=true`를 명시적으로 설정할 수 있습니다. 실제 위치를 대신하는 개발 좌표도 `VITE_DEV_LOCATION_OVERRIDE=true`를 설정한 경우에만 사용됩니다.
 
+아직 아래 v2 migration을 적용하지 않은 기존 로컬 Supabase로 기능을 점검해야 할 때는 개발 환경에서만 `VITE_ALLOW_LEGACY_BACKEND=true`를 사용할 수 있습니다. 이 모드는 v2 RPC가 없다는 `PGRST202` 응답에만 기존 API로 전환하며, 권한·검증·네트워크 오류에서는 전환하지 않습니다. 구형 API의 보안·원자성 한계가 있으므로 배포용 기능이 아니며 production build에서는 항상 비활성화됩니다.
+
 ## 데이터베이스 적용
 
 앱을 배포하기 전에 `supabase/migrations/20260718_v1_security_hardening.sql`을 Supabase에 적용해야 합니다. 이 migration은 다음을 포함합니다.

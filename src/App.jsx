@@ -150,8 +150,12 @@ function App() {
   // 5분 이내 반경 50m 안에 내가 쓴 글이 있으면 새 글 대신 그 글을 수정하도록 연다.
   // onConvertPin을 넘기면(핀에서 시작한 경우) 작성 성공 시 그 핀을 지우도록 호출한다.
   function openCreateModal(lat, lng, { presetCategory = null, onConvertPin = null } = {}) {
-    if (!isLocationTrusted || !trustedLocation) {
-      setLocationActionError('현재 위치를 확인해야 글과 채팅을 작성할 수 있어요.')
+    const duplicate = findNearbyDuplicate(lat, lng)
+    const existingPost = duplicate ? posts.find((post) => post.id === duplicate.id) : null
+
+    // 기존 내 글 수정은 새 위치 데이터를 만들지 않으므로 위치 권한이 사라져도 허용한다.
+    if (!existingPost && (!isLocationTrusted || !trustedLocation)) {
+      setLocationActionError('현재 위치를 확인해야 새 글과 채팅을 작성할 수 있어요.')
       return
     }
 
@@ -159,9 +163,6 @@ function App() {
     setSubmitError(null)
     setPendingPosition({ lat, lng })
     setPendingPinConvert(() => onConvertPin)
-
-    const duplicate = findNearbyDuplicate(lat, lng)
-    const existingPost = duplicate ? posts.find((post) => post.id === duplicate.id) : null
 
     if (existingPost) {
       setEditTarget({
@@ -200,7 +201,7 @@ function App() {
 
   async function handleSubmitPost({ category, title, content, imageFile, removeImage, icon }) {
     if (!pendingPosition) return
-    if (!isLocationTrusted || !trustedLocation) {
+    if (!editTarget && (!isLocationTrusted || !trustedLocation)) {
       setSubmitError('현재 위치를 다시 확인한 뒤 저장해 주세요.')
       return
     }
@@ -349,6 +350,7 @@ function App() {
 
         <section className="app-tab-panel" hidden={activeTab !== 'chat'} aria-hidden={activeTab !== 'chat'}>
           <ChatRoom
+            displayLocation={displayLocation}
             trustedLocation={trustedLocation}
             locationStatus={locationStatus}
             onRetryLocation={retryLocation}
