@@ -198,7 +198,7 @@ function ChatRoom({ active = true, displayLocation, trustedLocation, locationSta
   return (
     <div className="chat-room">
       <header className="page-heading chat-room-heading">
-        <span className="page-eyebrow">가까운 이웃과 실시간</span>
+        <span className="page-eyebrow">반경 안의 실시간 대화</span>
         <span className="chat-room-title-row">
           <h1 className="chat-room-title">동네 채팅</h1>
           <span className={`chat-live-indicator${realtimeStatus === 'SUBSCRIBED' ? ' online' : ''}`}>

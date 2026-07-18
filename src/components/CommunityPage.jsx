@@ -104,7 +104,7 @@ function CommunityPage({
   return (
     <div className="community-page">
       <header className="page-heading community-page-heading">
-        <span className="page-eyebrow">내 주변 500m</span>
+        <span className="page-eyebrow">반경 500m 동네 기록</span>
         <h1 className="community-page-title">동네 커뮤니티</h1>
         <p className="community-page-subtitle">
           {isLocationTrusted

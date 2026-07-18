@@ -9,7 +9,17 @@ import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
-function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onOpenCreateModal, userLocation, now }) {
+function MenuPage({
+  posts,
+  activeCategories,
+  onToggleCategory,
+  onSelectPost,
+  onOpenCreateModal,
+  onOpenQuickPost,
+  quickPostDisabled = false,
+  userLocation,
+  now,
+}) {
   const [view, setView] = useState('home')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -77,16 +87,26 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
       {view === 'home' && (
         <>
           <header className="menu-hero">
-            <span className="menu-hero-mark" aria-hidden="true">우</span>
+            <span className="menu-hero-mark" aria-hidden="true">동네</span>
             <span className="menu-hero-copy">
               <span className="page-eyebrow">우리동네알림</span>
-              <h1 className="menu-page-title">동네 생활</h1>
-              <span className="menu-hero-desc">소식 탐색부터 알림과 개인정보 관리까지</span>
+              <h1 className="menu-page-title">동네 생활판</h1>
+              <span className="menu-hero-desc">소식·알림·내 기록을 한곳에서 관리합니다</span>
             </span>
           </header>
 
+          <button
+            type="button"
+            className="menu-write-action"
+            disabled={quickPostDisabled}
+            onClick={onOpenQuickPost}
+          >
+            <AppIcon name="compose" size={18} />
+            지금 이 동네에 기록 남기기
+          </button>
+
           <section className="menu-section" aria-labelledby="menu-explore-title">
-            <h2 id="menu-explore-title" className="menu-section-title">커뮤니티 둘러보기</h2>
+            <h2 id="menu-explore-title" className="menu-section-title">동네 둘러보기</h2>
             <div className="menu-card-list">
               <button type="button" className="menu-card" onClick={() => setView('all')}>
                 <span className="menu-card-icon menu-card-icon--community"><AppIcon name="globe" size={22} /></span>
@@ -108,7 +128,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
           </section>
 
           <section className="menu-section" aria-labelledby="menu-manage-title">
-            <h2 id="menu-manage-title" className="menu-section-title">설정과 보안</h2>
+            <h2 id="menu-manage-title" className="menu-section-title">내 정보와 안전</h2>
             <div className="menu-card-list">
               <button type="button" className="menu-card" onClick={() => setView('notifications')}>
                 <span className="menu-card-icon menu-card-icon--notification"><AppIcon name="bell" size={22} /></span>

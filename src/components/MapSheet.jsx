@@ -139,7 +139,7 @@ function MapSheet({
           <>
             <div className="map-sheet-heading">
               <span>
-                <span className="page-eyebrow">NEARBY</span>
+                <span className="page-eyebrow">주변 기록</span>
                 <strong>{communityExpanded ? '동네 커뮤니티' : '내 주변 소식'}</strong>
               </span>
               <span className="map-sheet-count">{posts.length}개</span>

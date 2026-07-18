@@ -499,20 +499,24 @@ function App() {
             onOpenCreateModal={openCreateModal}
             userLocation={displayLocation}
             now={now}
+            onOpenQuickPost={() => setQuickPostOpen(true)}
+            quickPostDisabled={!isLocationTrusted}
           />
         </section>
 
-        {/* 탭과 무관하게 항상 떠 있는 빠른 글쓰기 진입점 — 어느 탭에서 눌러도 "현재 위치"에 등록한다. */}
-        <button
-          type="button"
-          className={`quick-post-fab quick-post-fab--${activeTab}`}
-          aria-label="빠르게 글쓰기"
-          disabled={!isLocationTrusted}
-          onClick={() => setQuickPostOpen(true)}
-        >
-          <AppIcon name="compose" size={21} />
-          <span className="quick-post-fab-label">글쓰기</span>
-        </button>
+        {/* 지도·커뮤니티에서는 현장 기록 버튼을 띄우고, 메뉴에서는 목록 안의 전용 버튼을 쓴다. */}
+        {(activeTab === 'map' || activeTab === 'community') && (
+          <button
+            type="button"
+            className={`quick-post-fab quick-post-fab--${activeTab}`}
+            aria-label="빠르게 글쓰기"
+            disabled={!isLocationTrusted}
+            onClick={() => setQuickPostOpen(true)}
+          >
+            <AppIcon name="compose" size={21} />
+            <span className="quick-post-fab-label">글쓰기</span>
+          </button>
+        )}
 
         <QuickPostSheet
           open={quickPostOpen}

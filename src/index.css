@@ -4369,3 +4369,809 @@ body {
     border-right: 1px solid rgba(203, 214, 208, 0.8);
   }
 }
+
+/* --------------------------------------------------------------------------
+   v7 designer revision — "동네 관찰 지도 + 골목 게시판"
+   둥근 SaaS 카드·청록 그라데이션 대신 도면선, 기록지 밀도, 먹색/흙빛 대비를 사용한다.
+   -------------------------------------------------------------------------- */
+
+:root {
+  --color-white: #fffdf8;
+  --color-gray-50: #f5f1e8;
+  --color-gray-100: #eee9de;
+  --color-gray-150: #e1dacd;
+  --color-gray-200: #d5ccbd;
+  --color-gray-250: #c7bdad;
+  --color-gray-300: #76766f;
+  --color-gray-350: #686b64;
+  --color-gray-400: #5f635d;
+  --color-gray-450: #5b5f59;
+  --color-gray-500: #535751;
+  --color-gray-600: #454943;
+  --color-gray-650: #393d38;
+  --color-gray-700: #30342f;
+  --color-gray-800: #272b27;
+  --color-gray-900: #1f231f;
+
+  --color-accent: #a4442f;
+  --color-accent-tint: #f3e5dc;
+  --color-accent-muted: #c99b8c;
+  --color-accent-ring: rgba(164, 68, 47, 0.58);
+  --color-accent-wash: rgba(164, 68, 47, 0.1);
+  --color-disabled-bg: #cfc7ba;
+
+  --color-canvas: #f3efe5;
+  --color-surface: #fbf8f0;
+  --color-ink: #252925;
+  --color-ink-muted: #62675f;
+  --color-accent-strong: #7d3021;
+  --color-accent-soft: #ead8cc;
+  --color-rule: #c8bfae;
+  --color-rule-strong: #858277;
+  --color-online: #365d49;
+
+  --surface-glass: rgba(251, 248, 240, 0.96);
+  --blur-glass: 8px;
+
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --radius-xl: 8px;
+  --radius-2xl: 10px;
+  --radius-3xl: 12px;
+
+  --shadow-sm: 0 1px 0 rgba(37, 41, 37, 0.12);
+  --shadow-md: 0 8px 22px rgba(37, 41, 37, 0.14);
+  --shadow-sheet: 0 -1px 0 rgba(37, 41, 37, 0.18);
+}
+
+body {
+  color: var(--color-ink);
+  background: #d9d1c2;
+  font-feature-settings: 'tnum' 1;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline-color: var(--color-accent-strong);
+}
+
+.app {
+  background: var(--color-canvas);
+  box-shadow: 0 0 0 1px rgba(37, 41, 37, 0.12);
+}
+
+.app-content,
+.community-page,
+.menu-page,
+.chat-room {
+  background: var(--color-canvas);
+  background-image: none;
+}
+
+.page-eyebrow {
+  color: var(--color-accent-strong);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.page-heading {
+  gap: 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-rule-strong);
+}
+
+.community-page-title,
+.menu-page-title,
+.chat-room-title {
+  color: var(--color-ink);
+  font-size: 1.42rem;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+}
+
+.community-page-subtitle,
+.chat-room-subtitle,
+.menu-hero-desc {
+  color: var(--color-ink-muted);
+}
+
+/* 하단 탐색은 떠 있는 pill이 아니라 지도 도구의 고정 인덱스로 표현한다. */
+.tab-bar {
+  gap: 0;
+  padding: 0 8px env(safe-area-inset-bottom, 0px);
+  border-top: 1px solid var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.tab-bar-item {
+  position: relative;
+  min-height: 58px;
+  gap: 2px;
+  padding: 8px 4px 6px;
+  border-radius: 0;
+  color: #6c7069;
+  background: transparent;
+}
+
+.tab-bar-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 22%;
+  right: 22%;
+  height: 3px;
+  background: transparent;
+}
+
+.tab-bar-item.active {
+  color: var(--color-accent-strong);
+  background: transparent;
+  font-weight: 800;
+}
+
+.tab-bar-item.active::before {
+  background: var(--color-accent);
+}
+
+.tab-bar-item:focus-visible,
+.map-sheet-handle:focus-visible,
+.map-marker:focus-visible,
+.map-pin:focus-visible,
+.post-card-open:focus-visible {
+  outline: 2px solid var(--color-accent-strong);
+  outline-offset: -2px;
+  border-radius: 2px;
+}
+
+.tab-bar-icon {
+  width: 23px;
+  height: 23px;
+}
+
+.tab-bar-label {
+  font-size: 0.68rem;
+}
+
+/* 행동 버튼은 한 가지 흙빛으로 고정하고 그림자 대신 오프셋 선을 사용한다. */
+.quick-post-fab,
+.empty-neighborhood-cta,
+.onboarding-start {
+  border: 1px solid var(--color-ink);
+  border-radius: 6px;
+  background: var(--color-accent);
+  background-image: none;
+  color: #fffdf8;
+  box-shadow: 3px 3px 0 var(--color-ink);
+}
+
+.quick-post-fab {
+  height: 50px;
+  min-width: 50px;
+  padding: 0 16px;
+  font-size: 0.88rem;
+  letter-spacing: -0.02em;
+}
+
+.quick-post-fab--map {
+  width: 50px;
+  height: 50px;
+  border-radius: 6px;
+}
+
+.quick-post-fab:disabled {
+  border-color: var(--color-rule-strong);
+  background: #c7bfb2;
+  color: #6a6a64;
+  box-shadow: none;
+}
+
+/* 메뉴: 카드 묶음이 아니라 실제 게시판의 항목 목록처럼 선과 번호감으로 나눈다. */
+.menu-page,
+.community-page {
+  gap: 22px;
+  padding: 22px 18px 108px;
+}
+
+.menu-hero {
+  min-height: auto;
+  gap: 15px;
+  padding: 18px 2px 17px;
+  border: 0;
+  border-top: 2px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-rule-strong);
+  border-radius: 0;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+.menu-hero-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 1px solid var(--color-accent);
+  border-radius: 50%;
+  color: var(--color-accent-strong);
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  font-size: 0.73rem;
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  transform: rotate(-5deg);
+}
+
+.menu-hero-copy {
+  gap: 3px;
+}
+
+.menu-section {
+  gap: 8px;
+}
+
+.menu-write-action {
+  width: 100%;
+  min-height: 45px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid var(--color-ink);
+  border-radius: 3px;
+  color: #fffdf8;
+  background: var(--color-accent);
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-align: left;
+  box-shadow: 3px 3px 0 var(--color-ink);
+  cursor: pointer;
+}
+
+.menu-write-action .app-icon {
+  order: 2;
+}
+
+.menu-write-action:disabled {
+  border-color: var(--color-rule-strong);
+  color: #6a6a64;
+  background: #c7bfb2;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.menu-section-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  color: var(--color-ink);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.menu-section-title::before {
+  content: '';
+  width: 14px;
+  height: 2px;
+  background: var(--color-accent);
+}
+
+.menu-card-list {
+  gap: 0;
+  border-top: 1px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-ink);
+}
+
+.menu-card {
+  min-height: 72px;
+  gap: 11px;
+  padding: 12px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.menu-card:last-child {
+  border-bottom: 0;
+}
+
+.menu-card:hover {
+  border-color: var(--color-rule);
+  background: rgba(164, 68, 47, 0.04);
+  box-shadow: none;
+  transform: none;
+}
+
+.menu-card-icon,
+.menu-card-icon--community,
+.menu-card-icon--location,
+.menu-card-icon--notification,
+.menu-card-icon--recovery,
+.menu-card-icon--privacy {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 3px;
+  color: var(--color-ink);
+  background: transparent;
+}
+
+.menu-card-icon .app-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.menu-card-text {
+  gap: 2px;
+}
+
+.menu-card-label {
+  color: var(--color-ink);
+  font-size: 0.93rem;
+  font-weight: 750;
+}
+
+.menu-card-desc {
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+}
+
+.menu-card-arrow {
+  color: var(--color-rule-strong);
+}
+
+.menu-card--privacy {
+  border-color: var(--color-rule);
+  background: rgba(164, 68, 47, 0.035);
+  background-image: none;
+}
+
+.menu-card-status {
+  padding: 2px 5px;
+  border: 1px solid #6c806f;
+  border-radius: 2px;
+  color: #365443;
+  background: transparent;
+  font-size: 0.6rem;
+}
+
+.menu-card-toggle {
+  width: 38px;
+  height: 22px;
+  padding: 2px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 2px;
+  background: #d9d2c6;
+}
+
+.menu-card-toggle-knob {
+  width: 16px;
+  height: 16px;
+  border-radius: 1px;
+  box-shadow: none;
+}
+
+.menu-card-toggle.on {
+  border-color: var(--color-online);
+  background: var(--color-online);
+}
+
+.menu-card-toggle.on .menu-card-toggle-knob {
+  transform: translateX(16px);
+}
+
+.menu-page-header {
+  min-height: 48px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--color-ink);
+}
+
+.menu-back-button {
+  border-radius: 2px;
+}
+
+/* 커뮤니티는 작은 태그와 평평한 기록 목록을 중심으로 한다. */
+.community-page-heading {
+  padding: 0 0 14px;
+}
+
+.community-feed {
+  gap: 11px;
+}
+
+.community-search-input,
+.community-favorite-input,
+.chat-room-input,
+.recovery-restore-input,
+.place-search-form {
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 3px;
+  background: var(--color-surface);
+  box-shadow: none;
+}
+
+.community-category-chip,
+.community-sort-chip,
+.community-favorite-chip,
+.chat-radius-chip {
+  min-height: 36px;
+  border-radius: 2px;
+  border-color: var(--color-rule-strong);
+  background: transparent;
+}
+
+.community-sort-chip.active,
+.chat-radius-chip.active {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-surface);
+}
+
+.community-favorite-chip.active {
+  border-color: var(--color-accent);
+  background: transparent;
+  color: var(--color-accent-strong);
+}
+
+.building-list,
+.community-list,
+.trending-list {
+  gap: 0;
+  border-top: 1px solid var(--color-ink);
+}
+
+.building-card,
+.post-card {
+  min-height: 72px;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.building-card {
+  padding: 13px 2px;
+}
+
+.building-card::before {
+  width: 3px;
+  height: 42px;
+  border-radius: 0;
+  background: var(--color-accent);
+}
+
+.building-card-count,
+.map-sheet-count {
+  padding: 3px 6px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 2px;
+  color: var(--color-ink);
+  background: transparent;
+  font-size: 0.68rem;
+}
+
+.post-card {
+  padding: 12px 2px;
+}
+
+.post-card--realtime {
+  border-left: 3px solid var(--post-card-accent);
+  padding-left: 9px;
+}
+
+.post-card-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+.post-card-title {
+  font-weight: 750;
+}
+
+/* 채팅은 말풍선보다 현장 로그에 가까운 구조로 정리한다. */
+.chat-room {
+  gap: 12px;
+  padding: 22px 18px 18px;
+}
+
+.chat-room-heading {
+  padding: 0 0 14px;
+}
+
+.chat-live-indicator {
+  padding: 0;
+  border-radius: 0;
+  color: var(--color-ink-muted);
+  background: transparent;
+}
+
+.chat-live-indicator.online {
+  color: var(--color-online);
+  background: transparent;
+}
+
+.chat-live-indicator.online > span {
+  background: var(--color-online);
+  box-shadow: none;
+}
+
+.chat-room-messages {
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--color-ink);
+  border-bottom: 1px solid var(--color-ink);
+  border-radius: 0;
+  background: transparent;
+}
+
+.chat-message {
+  align-self: stretch;
+  max-width: 100%;
+  gap: 3px;
+  padding: 12px 8px 12px 12px;
+  border-left: 3px solid var(--color-accent);
+  border-bottom: 1px solid var(--color-rule);
+  border-radius: 0;
+  background: transparent;
+}
+
+.chat-message-time {
+  align-self: flex-start;
+  color: var(--color-ink-muted);
+}
+
+.chat-room-form {
+  gap: 6px;
+  padding: 0;
+  border: 1px solid var(--color-ink);
+  border-radius: 3px;
+  background: var(--color-surface);
+  box-shadow: none;
+}
+
+.chat-room-input {
+  border: 0;
+  background: transparent;
+}
+
+.chat-room-send {
+  min-width: 64px;
+  margin: 4px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
+/* 지도: 떠 있는 유리 카드가 아니라 현장 도면 위의 고정 계기판처럼 보이게 한다. */
+.map-header {
+  top: calc(10px + env(safe-area-inset-top, 0px));
+  left: 10px;
+  right: 10px;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--color-ink);
+  border-radius: 5px;
+  background: rgba(251, 248, 240, 0.97);
+  box-shadow: 3px 3px 0 rgba(37, 41, 37, 0.75);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.map-header-location {
+  gap: 8px;
+}
+
+.map-header-location-icon {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-accent);
+  border-radius: 2px;
+  color: var(--color-accent-strong);
+  background: transparent;
+}
+
+.map-header-eyebrow {
+  color: var(--color-ink-muted);
+  font-size: 0.59rem;
+}
+
+.map-header-neighborhood {
+  color: var(--color-ink);
+  font-size: 0.96rem;
+}
+
+.place-search-form {
+  min-height: 43px;
+  padding: 4px 4px 4px 12px;
+}
+
+.place-search-button {
+  width: 34px;
+  height: 33px;
+  border-radius: 2px;
+  background: var(--color-accent);
+}
+
+.category-filter-toggle,
+.pin-toggle-button,
+.recenter-button {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--color-ink);
+  border-radius: 4px;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  box-shadow: 2px 2px 0 rgba(37, 41, 37, 0.7);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.category-filter-toggle.active,
+.pin-toggle-button.active {
+  border-color: var(--color-ink);
+  background: var(--color-accent);
+  color: var(--color-surface);
+}
+
+.category-filter-menu {
+  border: 1px solid var(--color-ink);
+  border-radius: 4px;
+  background: var(--color-surface);
+  box-shadow: 3px 3px 0 rgba(37, 41, 37, 0.65);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.category-filter-switch {
+  border-radius: 2px;
+}
+
+.category-filter-switch::after {
+  border-radius: 1px;
+}
+
+/* 지도 시트는 게시판 한 장처럼 화면 가장자리에 정확히 맞춘다. */
+.map-sheet {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 1px solid var(--color-ink);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--color-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.map-sheet-handle {
+  gap: 6px;
+  padding: 9px 0 7px;
+}
+
+.map-sheet-handle-bar {
+  width: 36px;
+  height: 3px;
+  border-radius: 0;
+  background: var(--color-rule-strong);
+}
+
+.map-sheet-content {
+  padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  gap: 13px;
+}
+
+.map-sheet-heading {
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--color-ink);
+}
+
+.map-sheet-heading strong {
+  font-size: 1.03rem;
+}
+
+.realtime-carousel-card {
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.map-sheet-more-button {
+  min-height: 44px;
+  border: 1px solid var(--color-ink);
+  border-radius: 3px;
+  color: var(--color-accent-strong);
+  background: transparent;
+}
+
+/* 비어 있는 동네는 감성 일러스트보다 기록 상태와 다음 행동을 직접 보여준다. */
+.empty-neighborhood {
+  padding: 13px 2px 8px;
+}
+
+.empty-neighborhood-emoji {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 11px;
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  color: var(--color-accent-strong);
+  background: transparent;
+  box-shadow: none;
+}
+
+.empty-neighborhood-title {
+  color: var(--color-ink);
+  font-size: 1.04rem;
+}
+
+.empty-neighborhood-desc {
+  color: var(--color-ink-muted);
+}
+
+.empty-neighborhood-cta {
+  min-height: 47px;
+  border-radius: 3px;
+}
+
+/* 설정/복구/상세 화면도 같은 선형 기록지 문법을 따른다. */
+.notification-settings-section,
+.recovery-section,
+.recovery-code-display,
+.post-detail,
+.post-modal,
+.quick-post-sheet,
+.pin-menu,
+.place-preview,
+.place-card {
+  border-color: var(--color-rule-strong);
+  background: var(--color-surface);
+}
+
+.recovery-section,
+.notification-settings-section {
+  border-top: 1px solid var(--color-ink);
+  border-radius: 0;
+}
+
+.recovery-code-display {
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 3px;
+}
+
+@media (max-width: 360px) {
+  .menu-hero {
+    padding: 15px 2px;
+  }
+
+  .menu-card {
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+
+  .menu-card-icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (min-width: 720px) {
+  .app {
+    border-color: var(--color-rule-strong);
+  }
+}

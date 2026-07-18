@@ -57,7 +57,7 @@ const MAP_LOAD_TIMEOUT_MS = 10000
 
 // index.css :root의 --color-accent와 반드시 같은 값으로 유지할 것 — 카카오맵 SVG 마커는
 // base64 data URI라 DOM 밖이라서 CSS 변수를 못 읽기 때문에 여기 hex 리터럴을 원본으로 둔다.
-const ACCENT_COLOR = '#1f7a62'
+const ACCENT_COLOR = '#a4442f'
 
 // 마커 3단계 크기 — 실시간 알림형(크게)/자유주제 커뮤니티(작게)/클러스터(숫자 원, 개수별로 더 크게).
 // 화면 픽셀 기준 지름(px). placeholder 모드(CSS)와 카카오 SVG 마커 양쪽이 이 값을 공유한다.
