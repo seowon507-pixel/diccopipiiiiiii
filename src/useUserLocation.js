@@ -28,7 +28,8 @@ function messageForStatus(status) {
 }
 
 // 지도 탐색용 fallback과 위치 기반 쓰기에 사용할 신뢰 좌표를 분리한다.
-export function useUserLocation() {
+// 온보딩이 끝나기 전에는 enabled=false로 위치 권한 요청을 미룬다.
+export function useUserLocation(enabled = true) {
   const [trustedLocation, setTrustedLocation] = useState(null)
   const [locationStatus, setLocationStatus] = useState(LOCATION_STATUS.LOADING)
   const [locationError, setLocationError] = useState(null)
@@ -42,6 +43,8 @@ export function useUserLocation() {
   }, [])
 
   useEffect(() => {
+    if (!enabled) return undefined
+
     const useDevelopmentLocation = import.meta.env.DEV
       && import.meta.env.VITE_DEV_LOCATION_OVERRIDE === 'true'
 
@@ -80,7 +83,7 @@ export function useUserLocation() {
     )
 
     return () => navigator.geolocation.clearWatch(watchId)
-  }, [requestGeneration])
+  }, [enabled, requestGeneration])
 
   const displayLocation = useMemo(
     () => trustedLocation

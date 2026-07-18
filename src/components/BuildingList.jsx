@@ -28,7 +28,7 @@ function BuildingList({ buildings, onSelect }) {
   }, [kakao, buildings])
 
   if (buildings.length === 0) {
-    return <p className="community-empty">표시할 건물이 없어요.</p>
+    return <p className="community-empty">아직 글이 있는 건물이 없어요.</p>
   }
 
   return (

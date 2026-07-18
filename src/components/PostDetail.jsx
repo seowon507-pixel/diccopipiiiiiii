@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { CATEGORY_LABEL_COLORS, DEFAULT_CATEGORY_COLOR, categoryHasExpiry } from '../categories'
-import { getComments, createComment, subscribeToComments } from '../supabaseClient'
-import { getActorToken } from '../myPosts'
+import { getComments, createComment, subscribeToComments, reportPost } from '../supabaseClient'
+import { getActorToken, getReporterSecret } from '../myPosts'
+import { useDraggableSheet } from '../useDraggableSheet'
+import ReportButton from './ReportButton.jsx'
+import Comment from './Comment.jsx'
+
+const PREVIEW_RATIO = 0.4
+const HALF_RATIO = 0.62
+const FULL_RATIO = 0.92
+
+function getBreakpoints(containerHeight) {
+  return [containerHeight * PREVIEW_RATIO, containerHeight * HALF_RATIO, containerHeight * FULL_RATIO]
+}
 
 function createClientId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -55,6 +66,19 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
   closeRef.current = onClose
   busyRef.current = Boolean(deleting || submittingComment)
   confirmDeleteRef.current = confirmDelete
+
+  const { wrapperRef, heightPx, dragging, handlers } = useDraggableSheet({
+    getBreakpoints,
+    initialIndex: 0,
+    onDismissBelowMin: () => {
+      if (!busyRef.current) closeRef.current()
+    },
+  })
+
+  function setDialogNode(node) {
+    dialogRef.current = node
+    wrapperRef.current = node
+  }
 
   function closeDeleteConfirmation() {
     setConfirmDelete(false)
@@ -132,17 +156,23 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
       })
     }
 
-    const unsubscribe = subscribeToComments(
-      post.id,
-      (newComment) => acceptComments([newComment]),
-      (status) => {
+    const unsubscribe = subscribeToComments(post.id, {
+      onInsert: (newComment) => acceptComments([newComment]),
+      onUpdate: (updatedComment) => {
+        if (!active || generation !== requestGenerationRef.current) return
+        setComments((current) => (
+          updatedComment.hidden
+            ? current.filter((comment) => comment.id !== updatedComment.id)
+            : mergeComments(current, [updatedComment])
+        ))
+      },
+      onStatus: (status) => {
         if (!active || generation !== requestGenerationRef.current) return
         setRealtimeStatus(status)
         if (status === 'SUBSCRIBED') loadComments()
       },
-    )
+    })
 
-    // 구독 생성 직후 조회하고 SUBSCRIBED 시 다시 병합해 구독 준비 전 삽입도 회수한다.
     loadComments()
 
     return () => {
@@ -152,6 +182,8 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
   }, [post.id, refreshGeneration])
 
   const isRealtime = categoryHasExpiry(post.category)
+  const isIncident = post.category === '사건사고'
+  const topLevelComments = comments.filter((comment) => !comment.parent_comment_id)
 
   async function handleCommentSubmit(event) {
     event.preventDefault()
@@ -173,12 +205,18 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
       setCommentsStatus('ready')
       setCommentText('')
       pendingCommentIdRef.current = null
-    } catch (err) {
-      console.error('[PostDetail] 댓글 등록 실패', err)
-      setSubmitError(err)
+    } catch (error) {
+      console.error('[PostDetail] 댓글 등록 실패', error)
+      setSubmitError(error)
     } finally {
       setSubmittingComment(false)
     }
+  }
+
+  function handleCommentReacted(commentId, emoji, count) {
+    setComments((current) => current.map((comment) => (
+      comment.id === commentId ? { ...comment, reactions: { ...comment.reactions, [emoji]: count } } : comment
+    )))
   }
 
   return (
@@ -187,12 +225,17 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
       onClick={(event) => event.target === event.currentTarget && !busyRef.current && onClose()}
     >
       <div
-        ref={dialogRef}
-        className="post-detail"
+        ref={setDialogNode}
+        className={`post-detail${dragging ? ' dragging' : ''}`}
+        style={{ height: heightPx || undefined }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="post-detail-title"
       >
+        <div className="post-detail-handle" {...handlers} aria-hidden="true">
+          <span className="post-detail-handle-bar" />
+        </div>
+
         <button
           ref={closeButtonRef}
           type="button"
@@ -204,122 +247,140 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
           ×
         </button>
 
-        <div className="post-detail-header">
-          <span
-            className="post-detail-category"
-            style={{ color: CATEGORY_LABEL_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR }}
-          >
-            {post.category}
-          </span>
-          {post.post_type === 'external' && <span className="post-inquiry-badge">외부작성</span>}
-          <span className="post-detail-time">{formatTime(post.updated_at ?? post.created_at)}</span>
-          {post.updated_at && <span className="map-infowindow-edited-badge">(수정됨)</span>}
-        </div>
-
-        {post.title && <h2 id="post-detail-title" className="post-detail-title">{post.title}</h2>}
-        {!post.title && <h2 id="post-detail-title" className="sr-only">게시글 상세</h2>}
-        {post.image_url && (
-          <img className="post-detail-image" src={post.image_url} alt="게시글 첨부 이미지" />
-        )}
-        <p className="post-detail-content">{post.content}</p>
-
-        <div className="post-detail-actions">
-          {isRealtime ? (
-            <button type="button" className="post-detail-confirm" disabled={confirming} onClick={onConfirm}>
-              {confirming ? '확인 중...' : `아직 그런가요? (${post.confirm_count})`}
-            </button>
-          ) : (
-            <button type="button" className="post-detail-like" disabled={liking} onClick={onLike}>
-              {liking ? '반영 중...' : `👍 추천해요 (${post.likes_count ?? 0})`}
-            </button>
-          )}
-        </div>
-        {actionError && <p className="dialog-error" role="alert">{actionError}</p>}
-
-        <div className="post-detail-comments">
-          <h3 className="post-detail-comments-title" data-connection-status={realtimeStatus}>
-            댓글 {comments.length}
-          </h3>
-
-          {commentsStatus === 'loading' && (
-            <p className="post-detail-comments-empty" role="status">댓글을 불러오는 중이에요…</p>
-          )}
-          {commentsStatus === 'error' && (
-            <div className="post-detail-comments-empty" role="alert">
-              <p>댓글을 불러오지 못했어요.</p>
-              <button type="button" onClick={() => setRefreshGeneration((value) => value + 1)}>다시 시도</button>
-            </div>
-          )}
-          {commentsStatus === 'ready' && comments.length === 0 && (
-            <p className="post-detail-comments-empty">첫 댓글을 남겨보세요.</p>
-          )}
-
-          <ul className="post-detail-comment-list" aria-live="polite" aria-relevant="additions">
-            {comments.map((comment) => (
-              <li key={comment.id} className="post-detail-comment">
-                <p className="post-detail-comment-content">{comment.content}</p>
-                <span className="post-detail-comment-time">{formatTime(comment.created_at)}</span>
-              </li>
-            ))}
-          </ul>
-
-          <form className="post-detail-comment-form" onSubmit={handleCommentSubmit}>
-            <input
-              className="post-detail-comment-input"
-              value={commentText}
-              maxLength={200}
-              placeholder="댓글을 입력하세요"
-              onChange={(event) => {
-                if (event.target.value !== commentText) pendingCommentIdRef.current = null
-                setCommentText(event.target.value)
-                setSubmitError(null)
-              }}
-            />
-            <button
-              type="submit"
-              className="post-detail-comment-submit"
-              disabled={submittingComment || !commentText.trim()}
+        <div className="post-detail-scroll">
+          <div className="post-detail-header">
+            <span
+              className="post-detail-category"
+              style={{ color: CATEGORY_LABEL_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR }}
             >
-              등록
-            </button>
-          </form>
-          {commentsError && commentsStatus === 'ready' && (
-            <p role="alert">최신 댓글을 확인하지 못했어요. 연결되면 다시 확인할게요.</p>
-          )}
-          {submitError && <p role="alert">댓글을 등록하지 못했어요. 다시 시도해 주세요.</p>}
-        </div>
+              {post.category}
+            </span>
+            {post.post_type === 'external' && <span className="post-inquiry-badge">외부작성</span>}
+            <span className="post-detail-time">{formatTime(post.updated_at ?? post.created_at)}</span>
+            {post.updated_at && <span className="map-infowindow-edited-badge">(수정됨)</span>}
+            <ReportButton targetId={post.id} onReport={() => reportPost(post.id, getReporterSecret())} />
+          </div>
 
-        {isMine && (
-          <div className="post-detail-owner-actions">
-            <button
-              type="button"
-              className="post-detail-edit"
-              disabled={deleting || submittingComment}
-              onClick={onEdit}
-            >
-              내 글 수정하기
-            </button>
-            {confirmDelete ? (
-              <div className="post-detail-delete-confirm" role="group" aria-label="게시글 삭제 확인">
-                <span>정말 삭제할까요?</span>
-                <button ref={cancelDeleteRef} type="button" disabled={deleting} onClick={closeDeleteConfirmation}>취소</button>
-                <button type="button" className="danger" disabled={deleting} onClick={onDelete}>
-                  {deleting ? '삭제 중...' : '삭제'}
+          {post.title && <h2 id="post-detail-title" className="post-detail-title">{post.title}</h2>}
+          {!post.title && <h2 id="post-detail-title" className="sr-only">게시글 상세</h2>}
+          {post.image_url && (
+            <img className="post-detail-image" src={post.image_url} alt="게시글 첨부 이미지" />
+          )}
+          <p className="post-detail-content">{post.content}</p>
+
+          <div className="post-detail-actions">
+            {isIncident ? (
+              <div className="post-detail-incident-banner">
+                <span className="post-detail-incident-label">🚨 확인 {post.confirm_count}명</span>
+                <button
+                  type="button"
+                  className="post-detail-confirm post-detail-confirm--incident"
+                  disabled={confirming}
+                  onClick={onConfirm}
+                >
+                  {confirming ? '확인 중...' : '아직 그런가요?'}
                 </button>
               </div>
+            ) : isRealtime ? (
+              <button type="button" className="post-detail-confirm" disabled={confirming} onClick={onConfirm}>
+                {confirming ? '확인 중...' : `아직 그런가요? (${post.confirm_count})`}
+              </button>
             ) : (
-              <button
-                ref={deleteTriggerRef}
-                type="button"
-                className="post-detail-delete"
-                disabled={deleting || submittingComment}
-                onClick={() => setConfirmDelete(true)}
-              >
-                내 글 삭제하기
+              <button type="button" className="post-detail-like" disabled={liking} onClick={onLike}>
+                {liking ? '반영 중...' : `👍 추천해요 (${post.likes_count ?? 0})`}
               </button>
             )}
           </div>
-        )}
+          {actionError && <p className="dialog-error" role="alert">{actionError}</p>}
+
+          <div className="post-detail-comments">
+            <h3 className="post-detail-comments-title" data-connection-status={realtimeStatus}>
+              댓글 {comments.length}
+            </h3>
+
+            {commentsStatus === 'loading' && (
+              <p className="post-detail-comments-empty" role="status">댓글을 불러오는 중이에요…</p>
+            )}
+            {commentsStatus === 'error' && (
+              <div className="post-detail-comments-empty" role="alert">
+                <p>댓글을 불러오지 못했어요.</p>
+                <button type="button" onClick={() => setRefreshGeneration((value) => value + 1)}>다시 시도</button>
+              </div>
+            )}
+            {commentsStatus === 'ready' && comments.length === 0 && (
+              <p className="post-detail-comments-empty">첫 댓글을 남겨보세요.</p>
+            )}
+
+            <ul className="post-detail-comment-list" aria-live="polite" aria-relevant="additions">
+              {topLevelComments.map((comment) => (
+                <Comment
+                  key={comment.id}
+                  comment={comment}
+                  replies={comments.filter((reply) => reply.parent_comment_id === comment.id)}
+                  postId={post.id}
+                  onReacted={handleCommentReacted}
+                />
+              ))}
+            </ul>
+
+            <form className="post-detail-comment-form" onSubmit={handleCommentSubmit}>
+              <input
+                className="post-detail-comment-input"
+                value={commentText}
+                maxLength={200}
+                placeholder="댓글을 입력하세요"
+                onChange={(event) => {
+                  if (event.target.value !== commentText) pendingCommentIdRef.current = null
+                  setCommentText(event.target.value)
+                  setSubmitError(null)
+                }}
+              />
+              <button
+                type="submit"
+                className="post-detail-comment-submit"
+                disabled={submittingComment || !commentText.trim()}
+              >
+                등록
+              </button>
+            </form>
+            {commentsError && commentsStatus === 'ready' && (
+              <p role="alert">최신 댓글을 확인하지 못했어요. 연결되면 다시 확인할게요.</p>
+            )}
+            {submitError && <p role="alert">댓글을 등록하지 못했어요. 다시 시도해 주세요.</p>}
+          </div>
+
+          {isMine && (
+            <div className="post-detail-owner-actions">
+              <button
+                type="button"
+                className="post-detail-edit"
+                disabled={deleting || submittingComment}
+                onClick={onEdit}
+              >
+                내 글 수정하기
+              </button>
+              {confirmDelete ? (
+                <div className="post-detail-delete-confirm" role="group" aria-label="게시글 삭제 확인">
+                  <span>정말 삭제할까요?</span>
+                  <button ref={cancelDeleteRef} type="button" disabled={deleting} onClick={closeDeleteConfirmation}>취소</button>
+                  <button type="button" className="danger" disabled={deleting} onClick={onDelete}>
+                    {deleting ? '삭제 중...' : '삭제'}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  ref={deleteTriggerRef}
+                  type="button"
+                  className="post-detail-delete"
+                  disabled={deleting || submittingComment}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  내 글 삭제하기
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

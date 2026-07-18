@@ -133,7 +133,7 @@ function PlacePreview({
             <p className="place-preview-address" role="status">주소를 찾는 중...</p>
           ) : (
             <p className="place-preview-address place-preview-address-empty">
-              이 위치의 주소 정보를 찾을 수 없어요.
+              이 위치는 주소를 못 찾았어요. 그래도 핀은 만들 수 있어요.
             </p>
           )}
         </div>

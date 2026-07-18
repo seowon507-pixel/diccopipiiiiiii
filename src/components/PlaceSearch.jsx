@@ -112,7 +112,9 @@ function PlaceSearch({ kakao, kakaoMap, onWriteHere, onSelectPlace }) {
             </button>
           </div>
           {status === 'loading' && <p className="place-search-empty" role="status">검색 중...</p>}
-          {status === 'ready' && results.length === 0 && <p className="place-search-empty">검색 결과가 없어요.</p>}
+          {status === 'ready' && results.length === 0 && (
+            <p className="place-search-empty">검색 결과가 없어요. 다른 키워드로 찾아볼까요?</p>
+          )}
           {status === 'ready' && results.map((place) => (
             <div key={place.id} className="place-search-result">
               <button type="button" className="place-search-result-main" onClick={() => handleSelect(place)}>

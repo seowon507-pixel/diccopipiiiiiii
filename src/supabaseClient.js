@@ -122,6 +122,7 @@ export async function getPosts() {
   const { data, error } = await requireSupabase()
     .from('posts')
     .select('*')
+    .eq('hidden', false)
     .order('created_at', { ascending: false })
 
   if (error) throw error
@@ -143,6 +144,7 @@ export async function createPost({
   imageUrl,
   icon,
   postType,
+  deviceSecret,
 }) {
   if (!ownerSecret) throw new TypeError('ownerSecret is required')
 
@@ -178,6 +180,7 @@ export async function createPost({
         p_post_type: resolvedPostType,
         p_image_url: imageUrl ?? null,
         p_owner_secret: ownerSecret,
+        p_device_secret: deviceSecret ?? null,
       })
 
       if (!icon) return created
@@ -199,7 +202,8 @@ export async function getPins() {
   return data
 }
 
-export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSecret }) {
+// 빈 핀 생성. deviceSecret은 익명 소유권 복구용으로 legacy RPC에 함께 전달한다.
+export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSecret, deviceSecret }) {
   if (!ownerSecret) throw new TypeError('ownerSecret is required')
 
   return withLegacyFallback(
@@ -215,8 +219,14 @@ export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSe
       p_lat: lat,
       p_lng: lng,
       p_owner_secret: ownerSecret,
+      p_device_secret: deviceSecret ?? null,
     }),
   )
+}
+
+// 다른 기기에서 예전 device_secret(복구 코드)을 입력했을 때 그 코드로 만든 글/핀 소유권을 되찾는다.
+export async function restoreOwnership(deviceSecret) {
+  return rpcRows('restore_ownership', { p_device_secret: deviceSecret })
 }
 
 export async function deletePin(id, ownerSecret) {
@@ -399,18 +409,35 @@ export async function incrementLikes(id, actorToken) {
   )
 }
 
+// 특정 게시글의 댓글 목록 조회. 신고 누적으로 hidden=true가 된 댓글은 제외한다.
 export async function getComments(postId) {
   const { data, error } = await requireSupabase()
     .from('comments')
     .select('*')
     .eq('post_id', postId)
+    .eq('hidden', false)
     .order('created_at', { ascending: true })
 
   if (error) throw error
   return data
 }
 
-export async function createComment(postId, content, { id = randomId(), actorToken } = {}) {
+// 세 번째 인자는 최상위 댓글의 멱등 요청 옵션 또는 답글의 parent id를 모두 지원한다.
+export async function createComment(postId, content, options = {}) {
+  const parentCommentId = typeof options === 'string' ? options : (options.parentCommentId ?? null)
+  const id = typeof options === 'object' && options.id ? options.id : randomId()
+  const actorToken = typeof options === 'object' ? options.actorToken : undefined
+
+  if (parentCommentId) {
+    const { data, error } = await requireSupabase()
+      .from('comments')
+      .insert({ id, post_id: postId, content, parent_comment_id: parentCommentId })
+      .select()
+      .single()
+    if (error) throw error
+    return data
+  }
+
   return withLegacyFallback(
     'createComment',
     () => rpc('create_comment_v2', {
@@ -431,7 +458,12 @@ export async function createComment(postId, content, { id = randomId(), actorTok
   )
 }
 
-export function subscribeToComments(postId, onInsert, onStatus) {
+// 특정 게시글의 댓글 등록(INSERT)/신고로 인한 숨김(UPDATE)을 실시간으로 구독한다. 구독 해제 함수를 반환한다.
+export function subscribeToComments(postId, options = {}, legacyStatus) {
+  const normalized = typeof options === 'function'
+    ? { onInsert: options, onStatus: legacyStatus }
+    : options
+  const { onInsert, onUpdate, onStatus } = normalized
   if (!supabase) return unavailableSubscription(onStatus)
 
   const channel = supabase
@@ -441,8 +473,41 @@ export function subscribeToComments(postId, onInsert, onStatus) {
       { event: 'INSERT', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` },
       (payload) => onInsert?.(payload.new),
     )
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` },
+      (payload) => onUpdate?.(payload.new),
+    )
 
   return activateChannel(channel, onStatus)
+}
+
+// 게시글/댓글 신고. 같은 브라우저(reporterSecret)가 같은 대상을 여러 번 눌러도 서버에서
+// 1회만 집계되고(post_reports/comment_reports의 unique 제약), 누적 5회부터는 RPC가
+// posts.hidden/comments.hidden을 자동으로 true로 바꿔 즉시 노출을 중단시킨다.
+export async function reportPost(postId, reporterSecret) {
+  return rpc('report_post', {
+    p_post_id: postId,
+    p_reporter_secret: reporterSecret,
+  })
+}
+
+export async function reportComment(commentId, reporterSecret) {
+  return rpc('report_comment', {
+    p_comment_id: commentId,
+    p_reporter_secret: reporterSecret,
+  })
+}
+
+// 댓글 이모지 반응 토글 — 같은 reactorSecret(notifications.js getOrCreateDeviceSecret 재사용)이
+// 같은 이모지를 다시 누르면 추가↔삭제가 토글된다. comments.reactions 갱신은 realtime UPDATE로도
+// 오지만(subscribeToComments), 이 응답으로 바로 낙관적 갱신할 수 있다.
+export async function reactToComment(commentId, emoji, reactorSecret) {
+  return rpc('react_to_comment', {
+    p_comment_id: commentId,
+    p_emoji: emoji,
+    p_reactor_secret: reactorSecret,
+  })
 }
 
 export async function getNearbyChatMessages({
@@ -463,7 +528,7 @@ export async function getNearbyChatMessages({
     }),
     async () => {
       const boundedLimit = Math.min(Math.max(Number(limit) || 1, 1), 200)
-      const boundedRadius = Math.min(Math.max(Number(radiusMeters) || 1, 1), 1000)
+      const boundedRadius = Math.min(Math.max(Number(radiusMeters) || 1, 1), 2000)
       let query = requireSupabase()
         .from('chat_messages')
         .select('*')
@@ -560,6 +625,38 @@ export function subscribeToChatMessages(_onInsert, onStatus) {
   return () => {}
 }
 
+// 웹 푸시 구독 + 알림 설정(관심 지역/키워드/조용한 시간)을 device_secret 기준으로 저장/갱신한다.
+// device_secret은 로그인 없이 이 브라우저를 식별하는 값(src/notifications.js가 localStorage에 보관).
+export async function upsertPushSubscription({
+  deviceSecret,
+  endpoint,
+  p256dh,
+  auth,
+  interestAreas,
+  keywords,
+  quietStart,
+  quietEnd,
+}) {
+  await rpc('upsert_push_subscription', {
+    p_device_secret: deviceSecret,
+    p_endpoint: endpoint,
+    p_p256dh: p256dh,
+    p_auth: auth,
+    p_interest_areas: interestAreas,
+    p_keywords: keywords,
+    p_quiet_start: quietStart,
+    p_quiet_end: quietEnd,
+  })
+}
+
+// 알림을 끌 때 서버에 저장된 구독을 지운다.
+export async function deletePushSubscription(deviceSecret) {
+  return rpc('delete_push_subscription', {
+    p_device_secret: deviceSecret,
+  })
+}
+
+// posts 테이블의 등록(INSERT)/수정(UPDATE)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
 export function subscribeToPostChanges({ onInsert, onUpdate, onDelete, onStatus } = {}) {
   if (!supabase) return unavailableSubscription(onStatus)
 

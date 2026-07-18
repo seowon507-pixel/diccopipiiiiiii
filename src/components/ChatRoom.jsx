@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { sendChatMessage, watchNearbyChatMessages } from '../supabaseClient'
 import { getActorToken } from '../myPosts'
+import { maybeFuzzLocation } from '../geoPrivacy'
 
-const NEARBY_RADIUS_METERS = 1000
+const DEFAULT_RADIUS_METERS = 1000
+const RADIUS_OPTIONS = [
+  { meters: 500, label: '500m' },
+  { meters: 1000, label: '1km' },
+  { meters: 2000, label: '2km' },
+]
 const CONTENT_MAX_LENGTH = 300
 const CHAT_POLL_INTERVAL_MS = 5000
 
@@ -51,12 +57,13 @@ function locationMessage(status) {
   return '현재 위치를 확인해야 동네 채팅을 사용할 수 있어요.'
 }
 
-// 신뢰할 수 있는 현재 위치 1km 이내 메시지만 조회하고 주기적으로 서버 snapshot과 병합한다.
+// 신뢰할 수 있는 현재 위치와 선택 반경의 메시지만 서버에서 조회하고 주기적으로 snapshot을 병합한다.
 function ChatRoom({ active = true, displayLocation, trustedLocation, locationStatus, onRetryLocation }) {
   const [messages, setMessages] = useState([])
   const [messagesStatus, setMessagesStatus] = useState('idle')
   const [messagesError, setMessagesError] = useState(null)
   const [realtimeStatus, setRealtimeStatus] = useState('IDLE')
+  const [radiusMeters, setRadiusMeters] = useState(DEFAULT_RADIUS_METERS)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState(null)
@@ -119,7 +126,7 @@ function ChatRoom({ active = true, displayLocation, trustedLocation, locationSta
       stopWatching = watchNearbyChatMessages({
         lat: readLat,
         lng: readLng,
-        radiusMeters: NEARBY_RADIUS_METERS,
+        radiusMeters,
         intervalMs: CHAT_POLL_INTERVAL_MS,
         onMessages: acceptSnapshot,
         onError: handleError,
@@ -135,7 +142,7 @@ function ChatRoom({ active = true, displayLocation, trustedLocation, locationSta
       listening = false
       if (typeof stopWatching === 'function') stopWatching()
     }
-  }, [active, hasReadLocation, readLat, readLng, refreshGeneration])
+  }, [active, hasReadLocation, readLat, readLng, radiusMeters, refreshGeneration])
 
   useEffect(() => {
     const list = listRef.current
@@ -160,11 +167,13 @@ function ChatRoom({ active = true, displayLocation, trustedLocation, locationSta
     setSending(true)
     setSendError(null)
     try {
+      // 공개되는 채팅 좌표는 위치 보호 설정에 따라 동네 수준으로 흐린다.
+      const sendLocation = maybeFuzzLocation({ lat: trustedLat, lng: trustedLng })
       const created = await sendChatMessage({
         id,
         actorToken: actorTokenRef.current,
-        lat: trustedLat,
-        lng: trustedLng,
+        lat: sendLocation.lat,
+        lng: sendLocation.lng,
         content: trimmed,
       })
       forceScrollRef.current = true
@@ -187,9 +196,23 @@ function ChatRoom({ active = true, displayLocation, trustedLocation, locationSta
   }
 
   return (
-    <div className="chat-room">
+      <div className="chat-room">
       <h1 className="chat-room-title">동네 채팅</h1>
-      <p className="chat-room-subtitle">내 위치 1km 이내 이웃과 대화해요.</p>
+      <p className="chat-room-subtitle">내 위치 기준 반경 이내 이웃과 실시간으로 대화해요.</p>
+
+      <div className="chat-radius-row">
+        {RADIUS_OPTIONS.map((option) => (
+          <button
+            key={option.meters}
+            type="button"
+            className={`chat-radius-chip${radiusMeters === option.meters ? ' active' : ''}`}
+            aria-pressed={radiusMeters === option.meters}
+            onClick={() => setRadiusMeters(option.meters)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
 
       <div
         className="chat-room-messages"

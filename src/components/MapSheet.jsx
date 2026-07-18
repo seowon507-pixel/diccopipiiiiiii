@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
+import RealtimeIssueCarousel from './RealtimeIssueCarousel.jsx'
+import EmptyNeighborhood from './EmptyNeighborhood.jsx'
 
 const COLLAPSED_PX = 64
 const MIDDLE_RATIO = 0.45
@@ -10,7 +12,16 @@ const SNAP_LABELS = ['접힘', '중간', '펼침']
 // 지도 위에 겹치는 드래그형 시트. 평소엔 화면 중간까지만 열려 지도와 주변 글 목록을 함께 보고,
 // 핸들을 끝까지 위로 끌면 목록 전체, 끝까지 아래로 끌면 핸들만 남기고 지도만 보이게 접힌다.
 // 핸들을 살짝 탭하기만 해도(드래그 없이) 접힘⇄중간 상태를 토글한다.
-function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost }) {
+function MapSheet({
+  posts,
+  activeCategories,
+  onToggleCategory,
+  onSelectPost,
+  fallbackPosts,
+  userLocation,
+  now,
+  onOpenQuickPost,
+}) {
   const wrapperRef = useRef(null)
   const dragStateRef = useRef(null)
   const [heightPx, setHeightPx] = useState(() => (
@@ -18,6 +29,7 @@ function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost }) {
   ))
   const [dragging, setDragging] = useState(false)
   const [snapIndex, setSnapIndex] = useState(1)
+  const [communityExpanded, setCommunityExpanded] = useState(false)
 
   function getSnapPoints(containerHeight) {
     return [COLLAPSED_PX, containerHeight * MIDDLE_RATIO, containerHeight * EXPANDED_RATIO]
@@ -83,8 +95,9 @@ function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost }) {
     setDragging(false)
     dragStateRef.current = null
   }
-
   const isCollapsed = heightPx <= COLLAPSED_PX + 4
+  // 내 주변에 글이 하나도 없으면(콜드 스타트) 실시간 이슈 캐러셀 대신 "첫 소식 남기기" 안내를 보여준다.
+  const isEmpty = posts.length === 0
 
   function handleKeyDown(event) {
     let nextIndex = null
@@ -121,12 +134,51 @@ function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost }) {
       </button>
 
       <div id="map-sheet-content" className="map-sheet-content" hidden={isCollapsed}>
-          <CommunityFeed
-            posts={posts}
-            activeCategories={activeCategories}
-            onToggleCategory={onToggleCategory}
-            onSelectPost={onSelectPost}
-          />
+        {!isCollapsed && (
+          <>
+            {!communityExpanded ? (
+              isEmpty ? (
+                <EmptyNeighborhood
+                  onOpenQuickPost={onOpenQuickPost}
+                  fallbackPosts={fallbackPosts}
+                  onSelectPost={onSelectPost}
+                  userLocation={userLocation}
+                  now={now}
+                />
+              ) : (
+                <>
+                  <RealtimeIssueCarousel posts={posts} onSelectPost={onSelectPost} />
+                  <button
+                    type="button"
+                    className="map-sheet-more-button"
+                    onClick={() => setCommunityExpanded(true)}
+                  >
+                    🏘 커뮤니티 더보기
+                  </button>
+                </>
+              )
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="map-sheet-collapse-button"
+                  onClick={() => setCommunityExpanded(false)}
+                >
+                  ‹ 접기
+                </button>
+                <CommunityFeed
+                  posts={posts}
+                  activeCategories={activeCategories}
+                  onToggleCategory={onToggleCategory}
+                  onSelectPost={onSelectPost}
+                  fallbackPosts={fallbackPosts}
+                  userLocation={userLocation}
+                  now={now}
+                />
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   )

@@ -668,7 +668,7 @@ as $function$
   from public.chat_messages cm
   where p_lat between -90 and 90
     and p_lng between -180 and 180
-    and p_radius_meters between 1 and 1000
+    and p_radius_meters between 1 and 2000
     and (p_before is null or cm.created_at < p_before)
     and public.distance_m_v1(p_lat, p_lng, cm.lat, cm.lng) <= p_radius_meters
   order by cm.created_at desc

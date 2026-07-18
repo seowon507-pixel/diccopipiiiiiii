@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
+import TrendingFallback from './TrendingFallback.jsx'
 import { COMMUNITY_RADIUS_METERS, filterPostsWithinRadius, groupPostsByBuilding } from '../usePosts'
 
 // 지도와 별도의 전체화면 커뮤니티 탭. 표시 데이터(posts)는 App에서 지도 탭과 공유한다(내 주변 500m).
@@ -20,6 +21,8 @@ function CommunityPage({
   onToggleCategory,
   onEnableAllCategories,
   onSelectPost,
+  fallbackPosts = [],
+  now,
 }) {
   const [selectedBuildingId, setSelectedBuildingId] = useState(null)
 
@@ -90,6 +93,9 @@ function CommunityPage({
           onRetry={onRetry}
           onWrite={onWrite ? () => onWrite(selectedBuilding.lat, selectedBuilding.lng) : undefined}
           contextLabel="이 건물"
+          fallbackPosts={fallbackPosts}
+          userLocation={userLocation}
+          now={now}
         />
       </div>
     )
@@ -118,6 +124,16 @@ function CommunityPage({
           {onEnableAllCategories && (
             <button type="button" onClick={onEnableAllCategories}>모든 카테고리 켜기</button>
           )}
+        </div>
+      ) : buildings.length === 0 ? (
+        <div className="community-empty-state">
+          <p className="community-empty">이 동네엔 아직 글이 없어요. 첫 글을 남겨보는 건 어때요?</p>
+          <TrendingFallback
+            posts={fallbackPosts}
+            onSelectPost={onSelectPost}
+            userLocation={userLocation}
+            now={now}
+          />
         </div>
       ) : (
         <BuildingList buildings={buildings} onSelect={(building) => setSelectedBuildingId(building.id)} />

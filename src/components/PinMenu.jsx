@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 // 아직 글이 없는 "빈 핀"을 클릭했을 때 뜨는 액션 메뉴.
-function PinMenu({ onWrite, onAskQuestion, onDelete, onClose, deleting, canDelete = false, errorMessage = null }) {
+function PinMenu({ onWrite, onDelete, onClose, deleting, canDelete = false, errorMessage = null }) {
   const dialogRef = useRef(null)
   const firstActionRef = useRef(null)
   const closeRef = useRef(onClose)
@@ -57,9 +57,6 @@ function PinMenu({ onWrite, onAskQuestion, onDelete, onClose, deleting, canDelet
 
         <button ref={firstActionRef} type="button" className="pin-menu-action" onClick={onWrite}>
           ✏️ 글쓰기
-        </button>
-        <button type="button" className="pin-menu-action" onClick={onAskQuestion}>
-          ❓ 질문 등록
         </button>
         {canDelete ? (
           <button

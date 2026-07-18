@@ -5,7 +5,11 @@ import ChatRoom from './components/ChatRoom.jsx'
 import MenuPage from './components/MenuPage.jsx'
 import PostDetail from './components/PostDetail.jsx'
 import PostModal from './components/PostModal.jsx'
+import QuickPostSheet from './components/QuickPostSheet.jsx'
+import Toast from './components/Toast.jsx'
 import TabBar from './components/TabBar.jsx'
+import Onboarding from './components/Onboarding.jsx'
+import { hasSeenOnboarding, markOnboardingSeen } from './onboarding'
 import { useUserLocation } from './useUserLocation'
 import { usePosts, EXTERNAL_DISTANCE_METERS } from './usePosts'
 import {
@@ -26,7 +30,10 @@ import {
   isMyPost,
   saveOwnership,
 } from './myPosts'
+import { maybeFuzzLocation } from './geoPrivacy'
 import { getDistanceMeters } from './geo'
+import { QUICK_POST_MESSAGES } from './categories'
+import { getOrCreateDeviceSecret } from './notifications'
 
 function createRequestId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -42,6 +49,8 @@ function createRequestId() {
 // 커뮤니티 등)에서 "글쓰기"를 눌러도 같은 흐름을 탄다 — 각 탭에서 업로드/등록 로직을 중복 구현하지 않는다.
 function App() {
   const [activeTab, setActiveTab] = useState('map')
+  // 온보딩을 보기 전에는 위치 권한 요청을 미룬다.
+  const [onboarded, setOnboarded] = useState(hasSeenOnboarding)
   const {
     displayLocation,
     trustedLocation,
@@ -49,7 +58,7 @@ function App() {
     locationError,
     isLocationTrusted,
     retryLocation,
-  } = useUserLocation()
+  } = useUserLocation(onboarded)
   const {
     posts,
     activePosts,
@@ -62,6 +71,8 @@ function App() {
     refetchPosts,
     upsertPost,
     removePost,
+    communityPosts,
+    now,
   } = usePosts(displayLocation)
 
   const [selectedPostId, setSelectedPostId] = useState(null)
@@ -76,6 +87,9 @@ function App() {
   // 핀에서 시작한 글쓰기가 성공하면 그 빈 핀을 지워야 한다 — 핀은 MapView가 자체 관리하는
   // 지도 전용 개념이라, 변환 콜백만 여기서 넘겨받아 성공 시 호출한다.
   const [pendingPinConvert, setPendingPinConvert] = useState(null)
+  // 이 글의 위치가 "내 현재 위치"에서 온 것인지(→ 위치 보호 시 흐림 대상). 지도에서 직접 찍거나
+  // 장소검색으로 고른 위치는 false라 정확히 등록된다.
+  const [pendingBlurLocation, setPendingBlurLocation] = useState(false)
   const [quickCategory, setQuickCategory] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
@@ -85,6 +99,15 @@ function App() {
   const [editTarget, setEditTarget] = useState(null)
   // 실패 후 재시도해도 같은 ID/소유 토큰을 보내 원자 RPC가 중복 글을 만들지 않게 한다.
   const pendingCreateRef = useRef(null)
+
+  // FAB → 카테고리 그리드로 "현재 위치 + 카테고리 1개"만으로 즉시 등록하는 빠른 글쓰기 흐름.
+  // 기존 openCreateModal(위치를 먼저 고르고 제목/내용까지 채우는 전체 작성)과는 별개 경로다 —
+  // "자세히 쓰기" 링크를 누를 때만 openCreateModal로 넘어간다.
+  const [quickPostOpen, setQuickPostOpen] = useState(false)
+  const [quickSubmitting, setQuickSubmitting] = useState(false)
+  const [toast, setToast] = useState(null)
+  // MapView에 "이 위치로 옮겨줘"를 알리는 값 — 매번 새 객체를 넘겨서 좌표가 같아도 재중심 효과가 다시 뜬다.
+  const [recenterTarget, setRecenterTarget] = useState(null)
 
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null
 
@@ -146,11 +169,69 @@ function App() {
     }
   }
 
+  // FAB에서 카테고리 하나를 고르면 그 자리에서 바로 등록까지 끝낸다(제목/사진 없음, 항상 현재
+  // 위치라 postType은 늘 'local'). 성공하면 시트를 닫고 지도 탭으로 옮긴 뒤 그 글 위치로
+  // 재중심하고 토스트를 띄운다. saveLastPost로 기록해두면 5분/50m 이내에 "자세히 쓰기"나
+  // 다른 글쓰기 진입점으로 같은 자리에 다시 들어와도 findNearbyDuplicate가 이 글을 찾아
+  // 수정 모드로 열어준다(중복 글 방지 로직 재사용, 새로 안 만듦).
+  async function handleQuickPost(category) {
+    if (!isLocationTrusted || !trustedLocation || quickSubmitting) return
+
+    setQuickSubmitting(true)
+    try {
+      // 빠른 등록은 항상 "내 현재 위치"에 올리는 글이라, 위치 보호가 켜져 있으면 대략적인
+      // 위치로 흐려서 등록한다(집 등 정확한 현재 좌표 노출 방지). 지도에서 직접 찍은 위치가
+      // 아니므로 흐려도 사용자 의도와 어긋나지 않는다.
+      const postLocation = maybeFuzzLocation(trustedLocation)
+      const ownerSecret = generateOwnerSecret()
+      const id = createRequestId()
+      const created = await createPost({
+        id,
+        actorToken: getActorToken(),
+        authorLat: trustedLocation.lat,
+        authorLng: trustedLocation.lng,
+        lat: postLocation.lat,
+        lng: postLocation.lng,
+        category,
+        title: null,
+        content: QUICK_POST_MESSAGES[category],
+        imageUrl: null,
+        icon: null,
+        ownerSecret,
+        deviceSecret: getOrCreateDeviceSecret(),
+      })
+      saveLastPost({ id: created.id, lat: postLocation.lat, lng: postLocation.lng })
+      if (!saveOwnership(created.id, ownerSecret)) {
+        await deletePost(created.id, ownerSecret)
+        throw new Error('이 브라우저에 소유권 정보를 저장할 수 없습니다.')
+      }
+      upsertPost(created)
+
+      setQuickPostOpen(false)
+      setActiveTab('map')
+      setRecenterTarget({ lat: postLocation.lat, lng: postLocation.lng })
+      setToast({ key: created.id, message: '등록됐어요!' })
+    } catch (err) {
+      console.error('[App] 빠른 등록 실패', err)
+      setToast({ key: `quick-post-error-${Date.now()}`, message: '등록에 실패했어요. 다시 시도해주세요.' })
+    } finally {
+      setQuickSubmitting(false)
+    }
+  }
+
+  // 빠른 등록 시트의 "자세히 쓰기" — 시트를 닫고 같은 위치(현재 내 위치)로 기존 전체 작성
+  // 모달(제목/내용/사진 다 채우는 openCreateModal)을 그대로 연다.
+  function handleOpenDetailedFromQuick() {
+    setQuickPostOpen(false)
+    // 빠른 등록에서 이어지는 자세히 쓰기도 "내 현재 위치" 기준이라 위치 보호(흐림) 대상이다.
+    if (trustedLocation) openCreateModal(trustedLocation.lat, trustedLocation.lng, { blurLocation: true })
+  }
+
   // 글쓰기 모달을 연다 — 지도 핀 글쓰기/질문 등록, 장소검색 "여기에 글쓰기",
   // 위치·건물별 커뮤니티 "글쓰기" 등 어디서든 이 함수 하나로 진입한다.
   // 5분 이내 반경 50m 안에 내가 쓴 글이 있으면 새 글 대신 그 글을 수정하도록 연다.
   // onConvertPin을 넘기면(핀에서 시작한 경우) 작성 성공 시 그 핀을 지우도록 호출한다.
-  function openCreateModal(lat, lng, { presetCategory = null, onConvertPin = null } = {}) {
+  function openCreateModal(lat, lng, { presetCategory = null, onConvertPin = null, blurLocation = false } = {}) {
     const duplicate = findNearbyDuplicate(lat, lng)
     const existingPost = duplicate ? posts.find((post) => post.id === duplicate.id) : null
 
@@ -164,6 +245,7 @@ function App() {
     setSubmitError(null)
     setPendingPosition({ lat, lng })
     setPendingPinConvert(() => onConvertPin)
+    setPendingBlurLocation(blurLocation)
 
     if (existingPost) {
       setEditTarget({
@@ -196,6 +278,7 @@ function App() {
     setSubmitError(null)
     setEditTarget(null)
     setPendingPinConvert(null)
+    setPendingBlurLocation(false)
     setQuickCategory(null)
     pendingCreateRef.current = null
   }
@@ -255,22 +338,26 @@ function App() {
         }
         pendingCreateRef.current = request
 
+        // 현재 위치에서 시작한 빠른/상세 작성만 동네 수준으로 흐리고, 사용자가 지도에서
+        // 직접 고른 공개 장소는 그대로 저장한다.
+        const postLocation = pendingBlurLocation ? maybeFuzzLocation(pendingPosition) : pendingPosition
         const created = await createPost({
           id: request.id,
           actorToken: getActorToken(),
           ownerSecret: request.ownerSecret,
           authorLat: trustedLocation.lat,
           authorLng: trustedLocation.lng,
-          lat: pendingPosition.lat,
-          lng: pendingPosition.lng,
+          lat: postLocation.lat,
+          lng: postLocation.lng,
           category,
           title,
           content,
           imageUrl,
           icon,
+          deviceSecret: getOrCreateDeviceSecret(),
         })
         upsertPost(created)
-        saveLastPost({ id: created.id, lat: pendingPosition.lat, lng: pendingPosition.lng })
+        saveLastPost({ id: created.id, lat: postLocation.lat, lng: postLocation.lng })
         if (!saveOwnership(created.id, request.ownerSecret)) {
           await deletePost(created.id, request.ownerSecret)
           removePost(created.id)
@@ -313,6 +400,18 @@ function App() {
     setActiveTab(nextTab)
   }
 
+  // 온보딩 미완료 시 앱(위치 요청 포함) 대신 소개 화면을 먼저 보여준다.
+  if (!onboarded) {
+    return (
+      <Onboarding
+        onStart={() => {
+          markOnboardingSeen()
+          setOnboarded(true)
+        }}
+      />
+    )
+  }
+
   return (
     <div className="app">
       <div className="app-content">
@@ -352,13 +451,16 @@ function App() {
             onToggleCategory={toggleCategory}
             onSelectPost={setSelectedPostId}
             onOpenCommunity={openTargetCommunity}
+            selectedPostId={selectedPostId}
             onOpenCreateModal={openCreateModal}
+            onOpenQuickPost={() => setQuickPostOpen(true)}
+            recenterTarget={recenterTarget}
           />
         </section>
 
         <section className="app-tab-panel" hidden={activeTab !== 'community'} aria-hidden={activeTab !== 'community'}>
           <CommunityPage
-            posts={activePosts}
+            posts={communityPosts}
             userLocation={displayLocation}
             isLocationTrusted={isLocationTrusted}
             locationStatus={locationStatus}
@@ -372,6 +474,8 @@ function App() {
             onToggleCategory={toggleCategory}
             onEnableAllCategories={enableAllCategories}
             onSelectPost={setSelectedPostId}
+            fallbackPosts={activePosts}
+            now={now}
           />
         </section>
 
@@ -392,8 +496,31 @@ function App() {
             onToggleCategory={toggleCategory}
             onSelectPost={setSelectedPostId}
             onOpenCreateModal={openCreateModal}
+            userLocation={displayLocation}
+            now={now}
           />
         </section>
+
+        {/* 탭과 무관하게 항상 떠 있는 빠른 글쓰기 진입점 — 어느 탭에서 눌러도 "현재 위치"에 등록한다. */}
+        <button
+          type="button"
+          className="quick-post-fab"
+          aria-label="빠르게 글쓰기"
+          disabled={!isLocationTrusted}
+          onClick={() => setQuickPostOpen(true)}
+        >
+          +
+        </button>
+
+        <QuickPostSheet
+          open={quickPostOpen}
+          submitting={quickSubmitting}
+          onSelectCategory={handleQuickPost}
+          onOpenDetailedModal={handleOpenDetailedFromQuick}
+          onClose={() => setQuickPostOpen(false)}
+        />
+
+        {toast && <Toast key={toast.key} message={toast.message} onDismiss={() => setToast(null)} />}
       </div>
 
       <TabBar activeTab={activeTab} onChange={handleTabChange} />
