@@ -5,6 +5,7 @@ import NotificationSettings from './NotificationSettings.jsx'
 import RecoveryCode from './RecoveryCode.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
+import { Glyph } from '../iconGlyphs'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
@@ -78,28 +79,28 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
           <h1 className="menu-page-title">메뉴</h1>
           <div className="menu-card-list">
             <button type="button" className="menu-card" onClick={() => setView('all')}>
-              <span className="menu-card-icon">🏘</span>
+              <span className="menu-card-icon"><Glyph name="buildings" size={24} /></span>
               <span className="menu-card-text">
                 <span className="menu-card-label">전체 커뮤니티</span>
                 <span className="menu-card-desc">거리 제한 없이 모든 동네 글을 봐요</span>
               </span>
             </button>
             <button type="button" className="menu-card" onClick={handleOpenLocation}>
-              <span className="menu-card-icon">📍</span>
+              <span className="menu-card-icon"><Glyph name="pin" size={24} /></span>
               <span className="menu-card-text">
                 <span className="menu-card-label">위치·건물별 커뮤니티</span>
                 <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
               </span>
             </button>
             <button type="button" className="menu-card" onClick={() => setView('notifications')}>
-              <span className="menu-card-icon">🔔</span>
+              <span className="menu-card-icon"><Glyph name="bell" size={24} /></span>
               <span className="menu-card-text">
                 <span className="menu-card-label">알림 설정</span>
                 <span className="menu-card-desc">관심 지역·키워드에 새 글 오면 알려드려요</span>
               </span>
             </button>
             <button type="button" className="menu-card" onClick={() => setView('recovery')}>
-              <span className="menu-card-icon">🔑</span>
+              <span className="menu-card-icon"><Glyph name="key" size={24} /></span>
               <span className="menu-card-text">
                 <span className="menu-card-label">복구 코드</span>
                 <span className="menu-card-desc">폰을 바꿔도 내 글/핀을 계속 관리해요</span>
@@ -111,7 +112,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
               onClick={toggleLocationPrivacy}
               aria-pressed={locationPrivacy}
             >
-              <span className="menu-card-icon">🛡️</span>
+              <span className="menu-card-icon"><Glyph name="shield" size={24} /></span>
               <span className="menu-card-text">
                 <span className="menu-card-label">내 위치 보호</span>
                 <span className="menu-card-desc">
@@ -194,7 +195,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                   placeholder="장소, 건물 검색"
                   onChange={(event) => setQuery(event.target.value)}
                 />
-                <button type="submit" className="place-search-button" aria-label="검색">🔍</button>
+                <button type="submit" className="place-search-button" aria-label="검색"><Glyph name="search" size={18} strokeWidth={2} /></button>
               </form>
 
               {searched && (
@@ -233,7 +234,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                     className="place-community-write-button"
                     onClick={() => onOpenCreateModal(selectedPlace.lat, selectedPlace.lng)}
                   >
-                    ✏️ 글쓰기
+                    <Glyph name="pencil" size={16} strokeWidth={2} /> 글쓰기
                   </button>
                 </div>
                 <button type="button" className="menu-location-reselect" onClick={() => setSelectedPlace(null)}>
