@@ -1,10 +1,11 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 
 const COLLAPSED_PX = 64
 const MIDDLE_RATIO = 0.45
 const EXPANDED_RATIO = 0.92
 const TAP_THRESHOLD_PX = 6
+const SNAP_LABELS = ['접힘', '중간', '펼침']
 
 // 지도 위에 겹치는 드래그형 시트. 평소엔 화면 중간까지만 열려 지도와 주변 글 목록을 함께 보고,
 // 핸들을 끝까지 위로 끌면 목록 전체, 끝까지 아래로 끌면 핸들만 남기고 지도만 보이게 접힌다.
@@ -16,6 +17,26 @@ function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost }) {
     typeof window !== 'undefined' ? window.innerHeight * MIDDLE_RATIO : 320
   ))
   const [dragging, setDragging] = useState(false)
+  const [snapIndex, setSnapIndex] = useState(1)
+
+  function getSnapPoints(containerHeight) {
+    return [COLLAPSED_PX, containerHeight * MIDDLE_RATIO, containerHeight * EXPANDED_RATIO]
+  }
+
+  function moveToSnap(index, containerHeight = wrapperRef.current?.parentElement?.clientHeight) {
+    if (!containerHeight) return
+    const nextIndex = Math.max(0, Math.min(2, index))
+    setSnapIndex(nextIndex)
+    setHeightPx(getSnapPoints(containerHeight)[nextIndex])
+  }
+
+  useEffect(() => {
+    function handleResize() {
+      moveToSnap(snapIndex)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [snapIndex])
 
   function handlePointerDown(event) {
     const containerHeight = wrapperRef.current.parentElement.clientHeight
@@ -49,11 +70,14 @@ function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost }) {
 
     if (drag.moved < TAP_THRESHOLD_PX) {
       const wasCollapsed = drag.startHeight <= COLLAPSED_PX + 4
-      setHeightPx(wasCollapsed ? drag.containerHeight * MIDDLE_RATIO : COLLAPSED_PX)
+      moveToSnap(wasCollapsed ? 1 : 0, drag.containerHeight)
     } else {
-      const points = [COLLAPSED_PX, drag.containerHeight * MIDDLE_RATIO, drag.containerHeight * EXPANDED_RATIO]
-      const nearest = points.reduce((a, b) => (Math.abs(b - heightPx) < Math.abs(a - heightPx) ? b : a))
-      setHeightPx(nearest)
+      const points = getSnapPoints(drag.containerHeight)
+      const nearestIndex = points.reduce(
+        (best, point, index) => (Math.abs(point - heightPx) < Math.abs(points[best] - heightPx) ? index : best),
+        0,
+      )
+      moveToSnap(nearestIndex, drag.containerHeight)
     }
 
     setDragging(false)
@@ -62,33 +86,48 @@ function MapSheet({ posts, activeCategories, onToggleCategory, onSelectPost }) {
 
   const isCollapsed = heightPx <= COLLAPSED_PX + 4
 
+  function handleKeyDown(event) {
+    let nextIndex = null
+    if (event.key === 'ArrowUp') nextIndex = snapIndex + 1
+    if (event.key === 'ArrowDown') nextIndex = snapIndex - 1
+    if (event.key === 'Home' || event.key === 'Escape') nextIndex = 0
+    if (event.key === 'End') nextIndex = 2
+    if (event.key === 'Enter' || event.key === ' ') nextIndex = snapIndex === 0 ? 1 : 0
+    if (nextIndex == null) return
+    event.preventDefault()
+    moveToSnap(nextIndex)
+  }
+
   return (
     <div
       ref={wrapperRef}
       className={`map-sheet${dragging ? ' dragging' : ''}`}
       style={{ height: heightPx }}
     >
-      <div
+      <button
+        type="button"
         className="map-sheet-handle"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onKeyDown={handleKeyDown}
+        aria-expanded={!isCollapsed}
+        aria-controls="map-sheet-content"
+        aria-label={`주변 글 시트: ${SNAP_LABELS[snapIndex]}`}
       >
-        <span className="map-sheet-handle-bar" />
+        <span className="map-sheet-handle-bar" aria-hidden="true" />
         {isCollapsed && <span className="map-sheet-handle-label">위로 끌어서 주변 글 보기</span>}
-      </div>
+      </button>
 
-      {!isCollapsed && (
-        <div className="map-sheet-content">
+      <div id="map-sheet-content" className="map-sheet-content" hidden={isCollapsed}>
           <CommunityFeed
             posts={posts}
             activeCategories={activeCategories}
             onToggleCategory={onToggleCategory}
             onSelectPost={onSelectPost}
           />
-        </div>
-      )}
+      </div>
     </div>
   )
 }

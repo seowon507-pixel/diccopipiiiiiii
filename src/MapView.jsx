@@ -5,6 +5,7 @@ import {
   deletePin,
   deleteExpiredPins,
   subscribeToPinChanges,
+  backendConfigurationError,
 } from './supabaseClient'
 import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, getElapsedRatio, getPinIconEmoji } from './categories'
 import { getDistanceMeters } from './geo'
@@ -20,6 +21,7 @@ import {
   savePinOwnership,
   forgetPinOwnership,
   getPinOwnerSecret,
+  getOrCreateActorToken as getActorToken,
 } from './myPosts'
 import CategoryFilter from './components/CategoryFilter.jsx'
 import PlaceSearch from './components/PlaceSearch.jsx'
@@ -38,24 +40,63 @@ const LONG_PRESS_MS = 500
 const MOVE_CANCEL_PX = 10
 const NEAR_EXPIRY_RATIO = 0.7
 const NEAR_EXPIRY_OPACITY = 0.45
+let kakaoMapScriptPromise = null
+
+function createRequestId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = character === 'x' ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
+}
 
 function isTouchDevice() {
   return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
 }
 
 function loadKakaoMapScript(appKey) {
-  return new Promise((resolve, reject) => {
+  if (window.kakao?.maps?.services) return Promise.resolve(window.kakao)
+  if (kakaoMapScriptPromise) return kakaoMapScriptPromise
+
+  kakaoMapScriptPromise = new Promise((resolve, reject) => {
     if (window.kakao?.maps?.services) {
       resolve(window.kakao)
       return
     }
 
+    const finishLoad = () => {
+      if (!window.kakao?.maps?.load) {
+        reject(new Error('카카오맵 SDK를 초기화할 수 없습니다.'))
+        return
+      }
+      window.kakao.maps.load(() => {
+        if (window.kakao?.maps?.services) resolve(window.kakao)
+        else reject(new Error('카카오맵 services 라이브러리를 불러오지 못했습니다.'))
+      })
+    }
+
+    const existingScript = document.querySelector('script[data-kakao-map-sdk="true"]')
+    if (existingScript) {
+      existingScript.addEventListener('load', finishLoad, { once: true })
+      existingScript.addEventListener('error', () => reject(new Error('카카오맵 SDK 요청에 실패했습니다.')), { once: true })
+      return
+    }
+
     const script = document.createElement('script')
-    script.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&libraries=services&autoload=false`
-    script.onload = () => window.kakao.maps.load(() => resolve(window.kakao))
-    script.onerror = reject
+    script.dataset.kakaoMapSdk = 'true'
+    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appKey}&libraries=services&autoload=false`
+    script.onload = finishLoad
+    script.onerror = () => reject(new Error('카카오맵 SDK 요청에 실패했습니다.'))
     document.head.appendChild(script)
   })
+
+  kakaoMapScriptPromise = kakaoMapScriptPromise.catch((error) => {
+    kakaoMapScriptPromise = null
+    document.querySelector('script[data-kakao-map-sdk="true"]')?.remove()
+    throw error
+  })
+  return kakaoMapScriptPromise
 }
 
 function getMarkerOpacity(post, referenceTime) {
@@ -159,6 +200,7 @@ function MapView({
   userLocation,
   locationLoading,
   locationDenied,
+  locationError = null,
   nearbyPosts,
   activePosts,
   activeCategories,
@@ -166,6 +208,8 @@ function MapView({
   onSelectPost,
   onOpenCommunity,
   onOpenCreateModal,
+  active = true,
+  display = true,
 }) {
   const mapContainerRef = useRef(null)
   const placeholderRef = useRef(null)
@@ -178,6 +222,7 @@ function MapView({
   const longPressTimerRef = useRef(null)
   const touchStartRef = useRef({ x: 0, y: 0 })
   const lastTouchTimeRef = useRef(0)
+  const savedMapViewRef = useRef(null)
 
   const [pins, setPins] = useState([])
   // 핀이 지도를 뒤덮어 가독성이 떨어질 때 사용자가 직접 껐다 켤 수 있는 표시 여부(서버 데이터는 그대로 유지).
@@ -192,11 +237,18 @@ function MapView({
   const [placeCommunityOpen, setPlaceCommunityOpen] = useState(false)
   const [creatingPin, setCreatingPin] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const [pinLoadError, setPinLoadError] = useState(null)
+  const [pinActionError, setPinActionError] = useState(null)
+  const [pinRetryKey, setPinRetryKey] = useState(0)
 
   const [kakaoReady, setKakaoReady] = useState(false)
+  const [mapLoadError, setMapLoadError] = useState(null)
+  const [mapRetryKey, setMapRetryKey] = useState(0)
   const [placeholderSize, setPlaceholderSize] = useState({ width: 0, height: 0 })
+  const useFallbackMap = !KAKAO_MAP_KEY || Boolean(mapLoadError)
 
   useEffect(() => {
+    if (backendConfigurationError) return undefined
     const interval = setInterval(() => {
       setNow(Date.now())
       // 만료된(작성 후 MAP_VISIBLE_MINUTES 지난) 빈 핀을 서버에서 실제로 정리한다.
@@ -210,17 +262,28 @@ function MapView({
 
   // 아직 글이 없는 "빈 핀" 목록도 함께 불러온다.
   useEffect(() => {
+    if (backendConfigurationError) {
+      setPins([])
+      setPinLoadError(null)
+      return undefined
+    }
     let cancelled = false
     deleteExpiredPins(MAP_VISIBLE_MINUTES).catch((err) => {
       console.error('[MapView] 만료 핀 정리 실패', err)
     })
-    getPins().then((data) => {
-      if (!cancelled) setPins(data)
-    })
+    setPinLoadError(null)
+    getPins()
+      .then((data) => {
+        if (!cancelled) setPins(data)
+      })
+      .catch((err) => {
+        console.error('[MapView] 핀 목록 조회 실패', err)
+        if (!cancelled) setPinLoadError('핀을 불러오지 못했어요.')
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [pinRetryKey])
 
   // 다른 사용자가 만들거나 지운 빈 핀을 실시간으로 반영한다.
   useEffect(() => {
@@ -252,6 +315,7 @@ function MapView({
     if (!KAKAO_MAP_KEY || !mapContainerRef.current || !userLocation || kakaoMapRef.current) return
 
     let cancelled = false
+    setMapLoadError(null)
 
     loadKakaoMapScript(KAKAO_MAP_KEY).then((kakao) => {
       if (cancelled || kakaoMapRef.current) return
@@ -262,6 +326,15 @@ function MapView({
       })
       kakaoMapRef.current = map
       setKakaoReady(true)
+
+      kakao.maps.event.addListener(map, 'center_changed', () => {
+        const center = map.getCenter()
+        savedMapViewRef.current = { lat: center.getLat(), lng: center.getLng(), level: map.getLevel() }
+      })
+      kakao.maps.event.addListener(map, 'zoom_changed', () => {
+        const center = map.getCenter()
+        savedMapViewRef.current = { lat: center.getLat(), lng: center.getLng(), level: map.getLevel() }
+      })
 
       myLocationCircleRef.current = new kakao.maps.Circle({
         center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
@@ -287,12 +360,33 @@ function MapView({
           setPreviewPosition({ lat: mouseEvent.latLng.getLat(), lng: mouseEvent.latLng.getLng() })
         })
       }
+    }).catch((err) => {
+      console.error('[MapView] 카카오맵 초기화 실패', err)
+      if (!cancelled) {
+        kakaoMapRef.current = null
+        setKakaoReady(false)
+        setMapLoadError('지도를 불러오지 못해 간단 지도로 표시하고 있어요.')
+      }
     })
 
     return () => {
       cancelled = true
     }
-  }, [userLocation])
+  }, [userLocation, mapRetryKey])
+
+  useEffect(() => {
+    if (!active || !kakaoMapRef.current || !window.kakao?.maps) return undefined
+    const frame = window.requestAnimationFrame(() => {
+      const map = kakaoMapRef.current
+      map.relayout()
+      const saved = savedMapViewRef.current
+      if (saved) {
+        map.setCenter(new window.kakao.maps.LatLng(saved.lat, saved.lng))
+        map.setLevel(saved.level)
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [active, display])
 
   // 위치가 갱신될 때마다 반경원/내 위치 점만 옮긴다(지도는 다시 만들지 않음) — 내 위치 실시간 동기화
   useEffect(() => {
@@ -319,9 +413,13 @@ function MapView({
           getPinIconEmoji(post.icon),
         ),
         opacity: getMarkerOpacity(post, now),
+        clickable: true,
+        zIndex: 5,
       })
 
       kakao.maps.event.addListener(marker, 'click', () => {
+        setPreviewPosition(null)
+        setSelectedPinId(null)
         onSelectPost(post.id)
       })
 
@@ -340,9 +438,12 @@ function MapView({
         position: new kakao.maps.LatLng(pin.lat, pin.lng),
         map: kakaoMapRef.current,
         image: createKakaoPinMarkerImage(kakao),
+        clickable: true,
+        zIndex: 6,
       })
 
       kakao.maps.event.addListener(marker, 'click', () => {
+        setPreviewPosition(null)
         setSelectedPinId(pin.id)
       })
 
@@ -370,6 +471,7 @@ function MapView({
         map: kakaoMapRef.current,
         image: createKakaoSearchMarkerImage(kakao),
         zIndex: 20,
+        clickable: true,
       })
       kakao.maps.event.addListener(marker, 'click', () => setPlaceCardOpen(true))
       searchMarkerRef.current = marker
@@ -378,7 +480,7 @@ function MapView({
 
   // placeholder 컨테이너 크기를 재서 500m 원을 정확한 원형(px)으로 그린다.
   useEffect(() => {
-    if (KAKAO_MAP_KEY) return
+    if (!useFallbackMap) return
     const el = placeholderRef.current
     if (!el || typeof ResizeObserver === 'undefined') return
 
@@ -388,7 +490,7 @@ function MapView({
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [locationLoading])
+  }, [locationLoading, useFallbackMap])
 
   // 핀에서 시작한 작성이 성공적으로 끝나면(글쓰기든 근처 글 수정이든) 원본 빈 핀은 삭제한다.
   // App.jsx의 openCreateModal에 onConvertPin으로 넘겨서, 글 저장 성공 시 호출되게 한다.
@@ -409,14 +511,25 @@ function MapView({
 
   // 좌표에 실제로 서버 핀을 만드는 공용 로직 (지도 미리보기 / 장소검색 결과 선택에서 공유)
   async function createPinAt(lat, lng) {
+    setPinActionError(null)
     try {
       const ownerSecret = generateOwnerSecret()
-      const created = await createPin({ lat, lng, ownerSecret })
+      const created = await createPin({
+        id: createRequestId(),
+        actorToken: getActorToken(),
+        lat,
+        lng,
+        ownerSecret,
+      })
+      if (!savePinOwnership(created.id, ownerSecret)) {
+        await deletePin(created.id, ownerSecret)
+        throw new Error('이 브라우저에 핀 소유권을 저장할 수 없습니다.')
+      }
       setPins((prev) => (prev.some((pin) => pin.id === created.id) ? prev : [created, ...prev]))
-      savePinOwnership(created.id, ownerSecret)
       return created
     } catch (err) {
       console.error('[MapView] 핀 생성 실패', err)
+      setPinActionError('핀을 만들지 못했어요. 잠시 후 다시 시도해주세요.')
       return null
     }
   }
@@ -450,16 +563,20 @@ function MapView({
   }
 
   // PlacePreview에서 "커뮤니티 보기"를 누르면 미리보기를 닫고 커뮤니티 탭으로 전환한다.
-  function handleViewCommunityFromPreview() {
+  function handleViewCommunityFromPreview(target) {
     setPreviewPosition(null)
-    onOpenCommunity()
+    onOpenCommunity?.(target ?? previewPosition)
   }
 
   // 핀 메뉴에서 "핀 삭제"를 누르면 본인이 만든 핀만(owner_secret 일치) 삭제된다.
   async function handleDeletePin(pin) {
     const ownerSecret = getPinOwnerSecret(pin.id)
-    if (!ownerSecret) return
+    if (!ownerSecret) {
+      setPinActionError('다른 사용자가 만든 핀은 삭제할 수 없어요.')
+      return
+    }
 
+    setPinActionError(null)
     setDeletingPinId(pin.id)
     try {
       const deleted = await deletePin(pin.id, ownerSecret)
@@ -467,9 +584,12 @@ function MapView({
         forgetPinOwnership(pin.id)
         setPins((prev) => prev.filter((p) => p.id !== pin.id))
         setSelectedPinId(null)
+      } else {
+        setPinActionError('핀 삭제 권한을 확인하지 못했어요.')
       }
     } catch (err) {
       console.error('[MapView] 핀 삭제 실패', err)
+      setPinActionError('핀을 삭제하지 못했어요. 잠시 후 다시 시도해주세요.')
     } finally {
       setDeletingPinId(null)
     }
@@ -541,13 +661,13 @@ function MapView({
 
   const locationBanner = locationDenied && (
     <div className="location-banner" role="status">
-      위치 접근이 거부되어 서울시청 기준 위치로 표시하고 있어요.
+      {locationError?.message || locationError || '위치 접근이 거부되어 기본 위치로 표시하고 있어요.'}
     </div>
   )
 
   if (locationLoading) {
     return (
-      <div className="map-placeholder" role="status" aria-label="위치 확인 중">
+      <div className="map-placeholder" role="status" aria-label="위치 확인 중" hidden={!display}>
         <span className="map-placeholder-label">위치 확인 중...</span>
       </div>
     )
@@ -568,7 +688,7 @@ function MapView({
     * (EXTERNAL_DISTANCE_METERS / PLACEHOLDER_VIEWPORT_RADIUS_METERS)
 
   return (
-    <>
+    <div className="map-view-shell" hidden={!display}>
       {locationBanner}
       <div className="map-view">
         <div className="map-top-bar">
@@ -594,12 +714,24 @@ function MapView({
           />
         )}
 
-        {!KAKAO_MAP_KEY ? (
+        {(pinLoadError || (!kakaoReady && !useFallbackMap)) && (
+          <div className="map-status-stack">
+            {!kakaoReady && !useFallbackMap && <p role="status">지도를 불러오는 중...</p>}
+            {pinLoadError && (
+              <div role="alert">
+                <span>{pinLoadError}</span>
+                <button type="button" onClick={() => setPinRetryKey((value) => value + 1)}>다시 시도</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {useFallbackMap ? (
           <div
             ref={placeholderRef}
             className="map-placeholder"
-            role="img"
-            aria-label="지도 영역 placeholder"
+            role="region"
+            aria-label="간단 지도 영역"
             onClick={(event) => handlePlaceholderClick(event, placeholderBounds)}
             onTouchStart={(event) => handlePlaceholderTouchStart(event, placeholderBounds)}
             onTouchMove={handleTouchMove}
@@ -607,7 +739,23 @@ function MapView({
             onTouchCancel={handleTouchEnd}
             onContextMenu={(event) => event.preventDefault()}
           >
-            <span className="map-placeholder-label">지도 영역</span>
+            <span className="map-placeholder-label">간단 지도</span>
+
+            {mapLoadError && (
+              <div className="map-fallback-error" role="alert">
+                <span>{mapLoadError}</span>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setMapLoadError(null)
+                    setMapRetryKey((value) => value + 1)
+                  }}
+                >
+                  실제 지도 다시 시도
+                </button>
+              </div>
+            )}
 
             {myCircleDiameterPx > 0 && (
               <div
@@ -635,6 +783,8 @@ function MapView({
                   aria-label={`${post.category} 게시글`}
                   onClick={(event) => {
                     event.stopPropagation()
+                    setPreviewPosition(null)
+                    setSelectedPinId(null)
                     onSelectPost(post.id)
                   }}
                 >
@@ -656,6 +806,7 @@ function MapView({
                   aria-label="빈 핀"
                   onClick={(event) => {
                     event.stopPropagation()
+                    setPreviewPosition(null)
                     setSelectedPinId(pin.id)
                   }}
                 >
@@ -715,11 +866,12 @@ function MapView({
 
       <PlacePreview
         position={previewPosition}
-        kakao={window.kakao}
+        kakao={kakaoReady ? window.kakao : null}
         onCreatePin={handleCreatePinAtPreview}
         onViewCommunity={handleViewCommunityFromPreview}
         onClose={() => setPreviewPosition(null)}
         creatingPin={creatingPin}
+        errorMessage={pinActionError}
       />
 
       {placeCardOpen && !placeCommunityOpen && (
@@ -734,12 +886,14 @@ function MapView({
       {selectedPin && (
         <PinMenu
           onWrite={() => {
+            setPinActionError(null)
             setSelectedPinId(null)
             onOpenCreateModal(selectedPin.lat, selectedPin.lng, {
               onConvertPin: () => convertPinToPost(selectedPin.id),
             })
           }}
           onAskQuestion={() => {
+            setPinActionError(null)
             setSelectedPinId(null)
             onOpenCreateModal(selectedPin.lat, selectedPin.lng, {
               presetCategory: '동네질문',
@@ -747,11 +901,16 @@ function MapView({
             })
           }}
           onDelete={() => handleDeletePin(selectedPin)}
-          onClose={() => setSelectedPinId(null)}
+          onClose={() => {
+            setPinActionError(null)
+            setSelectedPinId(null)
+          }}
           deleting={deletingPinId === selectedPin.id}
+          canDelete={Boolean(getPinOwnerSecret(selectedPin.id))}
+          errorMessage={pinActionError}
         />
       )}
-    </>
+    </div>
   )
 }
 

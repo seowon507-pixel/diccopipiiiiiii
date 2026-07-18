@@ -28,10 +28,19 @@ function PostModal({
   const [imageError, setImageError] = useState(null)
   const [icon, setIcon] = useState(initialIcon)
   const fileInputRef = useRef(null)
+  const dialogRef = useRef(null)
+  const titleInputRef = useRef(null)
+  const objectUrlRef = useRef(null)
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+  }, [])
 
   // 모달이 열릴 때마다(새 글 작성 or 기존 글 수정) 입력값을 초기값으로 맞춘다.
   useEffect(() => {
     if (open) {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
       setCategory(initialCategory)
       setTitle(initialTitle)
       setContent(initialContent)
@@ -41,6 +50,42 @@ function PostModal({
       setIcon(initialIcon)
     }
   }, [open, initialCategory, initialTitle, initialContent, initialImageUrl, initialIcon])
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const previousFocus = document.activeElement
+    const focusTimer = window.requestAnimationFrame(() => titleInputRef.current?.focus())
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        if (!submitting) onClose()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+
+      const focusable = [...dialogRef.current.querySelectorAll(
+        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )]
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.cancelAnimationFrame(focusTimer)
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocus?.focus?.()
+    }
+  }, [open, submitting, onClose])
 
   if (!open) return null
 
@@ -52,6 +97,7 @@ function PostModal({
     && !submitting
 
   function handleClose() {
+    if (submitting) return
     onClose()
   }
 
@@ -70,10 +116,14 @@ function PostModal({
 
     setImageError(null)
     setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    objectUrlRef.current = URL.createObjectURL(file)
+    setImagePreview(objectUrlRef.current)
   }
 
   function handleRemoveImage() {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    objectUrlRef.current = null
     setImageFile(null)
     setImagePreview(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -96,6 +146,7 @@ function PostModal({
               type="button"
               className={`post-modal-category-chip${category === name ? ' selected' : ''}`}
               style={category === name ? { backgroundColor: CATEGORY_COLORS[name], borderColor: CATEGORY_COLORS[name] } : undefined}
+              aria-pressed={category === name}
               onClick={() => setCategory(name)}
             >
               {name}
@@ -107,9 +158,20 @@ function PostModal({
   }
 
   return (
-    <div className="post-modal-backdrop" onClick={handleClose}>
-      <form className="post-modal" onClick={(event) => event.stopPropagation()} onSubmit={handleSubmit}>
-        <h2 className="post-modal-title">{isEditing ? '게시글 수정' : '무슨 일이 있나요?'}</h2>
+    <div
+      className="post-modal-backdrop"
+      onClick={(event) => event.target === event.currentTarget && handleClose()}
+    >
+      <form
+        ref={dialogRef}
+        className="post-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="post-modal-title"
+        aria-describedby={errorMessage ? 'post-modal-error' : undefined}
+        onSubmit={handleSubmit}
+      >
+        <h2 id="post-modal-title" className="post-modal-title">{isEditing ? '게시글 수정' : '무슨 일이 있나요?'}</h2>
 
         {isEditing && (
           <p className="post-modal-edit-notice">
@@ -135,6 +197,7 @@ function PostModal({
                 className={`post-modal-icon-chip${icon === key ? ' selected' : ''}`}
                 onClick={() => setIcon(icon === key ? null : key)}
                 aria-label={`아이콘 ${emoji}`}
+                aria-pressed={icon === key}
               >
                 {emoji}
               </button>
@@ -143,12 +206,14 @@ function PostModal({
         </div>
 
         <input
+          ref={titleInputRef}
           className="post-modal-title-input"
           value={title}
           maxLength={TITLE_MAX_LENGTH}
           placeholder="제목"
           spellCheck="true"
           lang="ko"
+          aria-label="게시글 제목"
           onChange={(event) => setTitle(event.target.value)}
         />
 
@@ -189,10 +254,10 @@ function PostModal({
           {imageError && <p className="post-modal-error">{imageError}</p>}
         </div>
 
-        {errorMessage && <p className="post-modal-error">{errorMessage}</p>}
+        {errorMessage && <p id="post-modal-error" className="post-modal-error" role="alert">{errorMessage}</p>}
 
         <div className="post-modal-actions">
-          <button type="button" className="post-modal-cancel" onClick={handleClose}>
+          <button type="button" className="post-modal-cancel" disabled={submitting} onClick={handleClose}>
             취소
           </button>
           <button type="submit" className="post-modal-submit" disabled={!canSubmit}>

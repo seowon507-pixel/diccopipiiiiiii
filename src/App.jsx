@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import MapView from './MapView.jsx'
 import CommunityPage from './components/CommunityPage.jsx'
 import ChatRoom from './components/ChatRoom.jsx'
@@ -8,23 +8,66 @@ import PostModal from './components/PostModal.jsx'
 import TabBar from './components/TabBar.jsx'
 import { useUserLocation } from './useUserLocation'
 import { usePosts, EXTERNAL_DISTANCE_METERS } from './usePosts'
-import { createPost, updatePost, uploadPostImage, incrementConfirmCount, incrementLikes, deletePost } from './supabaseClient'
+import {
+  createPost,
+  deletePost,
+  incrementConfirmCount,
+  incrementLikes,
+  removePostImage,
+  updatePost,
+  uploadPostImage,
+} from './supabaseClient'
 import { findNearbyDuplicate, saveLastPost } from './abuseCheck'
-import { getOwnerSecret, forgetOwnership, isMyPost, saveOwnership, generateOwnerSecret } from './myPosts'
+import {
+  forgetOwnership,
+  generateOwnerSecret,
+  getActorToken,
+  getOwnerSecret,
+  isMyPost,
+  saveOwnership,
+} from './myPosts'
 import { getDistanceMeters } from './geo'
+
+function createRequestId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16)
+    const value = character === 'x' ? random : (random & 0x3) | 0x8
+    return value.toString(16)
+  })
+}
 
 // 지도/커뮤니티/채팅은 별도 탭으로 분리되어 있지만, 위치와 게시글 목록은 여기서 한 번만 구독해 셋이 공유한다.
 // 게시글 상세(PostDetail)/작성 모달(PostModal)도 여기서 관리해서 어느 탭(지도 핀, 위치·건물별
 // 커뮤니티 등)에서 "글쓰기"를 눌러도 같은 흐름을 탄다 — 각 탭에서 업로드/등록 로직을 중복 구현하지 않는다.
 function App() {
   const [activeTab, setActiveTab] = useState('map')
-  const { userLocation, locationLoading, locationDenied } = useUserLocation()
-  const { posts, setPosts, activePosts, nearbyPosts, communityPosts, activeCategories, toggleCategory } = usePosts(userLocation)
+  const {
+    displayLocation,
+    trustedLocation,
+    locationStatus,
+    locationError,
+    isLocationTrusted,
+    retryLocation,
+  } = useUserLocation()
+  const {
+    posts,
+    activePosts,
+    nearbyPosts,
+    activeCategories,
+    toggleCategory,
+    postsStatus,
+    postsError,
+    refetchPosts,
+    upsertPost,
+    removePost,
+  } = usePosts(displayLocation)
 
   const [selectedPostId, setSelectedPostId] = useState(null)
   const [confirmingPostId, setConfirmingPostId] = useState(null)
   const [likingPostId, setLikingPostId] = useState(null)
   const [deletingPostId, setDeletingPostId] = useState(null)
+  const [postActionError, setPostActionError] = useState(null)
 
   // 글쓰기 모달 상태 — 어느 화면(지도 핀/장소검색/위치·건물별 커뮤니티)에서 열든 공유한다.
   const [modalOpen, setModalOpen] = useState(false)
@@ -35,20 +78,27 @@ function App() {
   const [quickCategory, setQuickCategory] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
+  const [locationActionError, setLocationActionError] = useState(null)
+  const [communityTarget, setCommunityTarget] = useState(null)
   // null이면 새 글 작성, 값이 있으면 해당 게시글 수정 모드
   const [editTarget, setEditTarget] = useState(null)
+  // 실패 후 재시도해도 같은 ID/소유 토큰을 보내 원자 RPC가 중복 글을 만들지 않게 한다.
+  const pendingCreateRef = useRef(null)
 
   const selectedPost = posts.find((post) => post.id === selectedPostId) ?? null
 
-  // "아직 그런가요?" 확인 시 confirm_count를 1 증가시킨다. 화면 반영은 realtime UPDATE로 처리한다.
+  // mutation 응답을 즉시 반영하고 Realtime은 다른 사용자 변경을 보완하는 경로로 쓴다.
   async function handleConfirm(post) {
     if (confirmingPostId === post.id) return
 
     setConfirmingPostId(post.id)
+    setPostActionError(null)
     try {
-      await incrementConfirmCount(post.id, post.confirm_count)
+      const updated = await incrementConfirmCount(post.id, getActorToken())
+      upsertPost(updated)
     } catch (err) {
       console.error('[App] confirm_count 갱신 실패', err)
+      setPostActionError('현황 확인을 반영하지 못했어요. 다시 시도해 주세요.')
     } finally {
       setConfirmingPostId(null)
     }
@@ -59,10 +109,13 @@ function App() {
     if (likingPostId === post.id) return
 
     setLikingPostId(post.id)
+    setPostActionError(null)
     try {
-      await incrementLikes(post.id, post.likes_count ?? 0)
+      const updated = await incrementLikes(post.id, getActorToken())
+      upsertPost(updated)
     } catch (err) {
       console.error('[App] likes_count 갱신 실패', err)
+      setPostActionError('추천을 반영하지 못했어요. 다시 시도해 주세요.')
     } finally {
       setLikingPostId(null)
     }
@@ -74,15 +127,19 @@ function App() {
     if (!ownerSecret) return
 
     setDeletingPostId(post.id)
+    setPostActionError(null)
     try {
       const deleted = await deletePost(post.id, ownerSecret)
       if (deleted) {
         forgetOwnership(post.id)
-        setPosts((prev) => prev.filter((p) => p.id !== post.id))
+        removePost(post.id)
         setSelectedPostId(null)
+      } else {
+        setPostActionError('작성자 권한을 확인하지 못해 삭제하지 못했어요.')
       }
     } catch (err) {
       console.error('[App] 게시글 삭제 실패', err)
+      setPostActionError('게시글을 삭제하지 못했어요. 다시 시도해 주세요.')
     } finally {
       setDeletingPostId(null)
     }
@@ -93,6 +150,12 @@ function App() {
   // 5분 이내 반경 50m 안에 내가 쓴 글이 있으면 새 글 대신 그 글을 수정하도록 연다.
   // onConvertPin을 넘기면(핀에서 시작한 경우) 작성 성공 시 그 핀을 지우도록 호출한다.
   function openCreateModal(lat, lng, { presetCategory = null, onConvertPin = null } = {}) {
+    if (!isLocationTrusted || !trustedLocation) {
+      setLocationActionError('현재 위치를 확인해야 글과 채팅을 작성할 수 있어요.')
+      return
+    }
+
+    setLocationActionError(null)
     setSubmitError(null)
     setPendingPosition({ lat, lng })
     setPendingPinConvert(() => onConvertPin)
@@ -112,9 +175,14 @@ function App() {
         icon: existingPost.icon,
       })
       setQuickCategory(null)
+      pendingCreateRef.current = null
     } else {
       setEditTarget(null)
       setQuickCategory(presetCategory)
+      pendingCreateRef.current = {
+        id: createRequestId(),
+        ownerSecret: generateOwnerSecret(),
+      }
     }
 
     setModalOpen(true)
@@ -127,89 +195,167 @@ function App() {
     setEditTarget(null)
     setPendingPinConvert(null)
     setQuickCategory(null)
+    pendingCreateRef.current = null
   }
 
   async function handleSubmitPost({ category, title, content, imageFile, removeImage, icon }) {
     if (!pendingPosition) return
+    if (!isLocationTrusted || !trustedLocation) {
+      setSubmitError('현재 위치를 다시 확인한 뒤 저장해 주세요.')
+      return
+    }
 
     setSubmitting(true)
     setSubmitError(null)
+    let uploadedImageUrl = null
     try {
       const imageUrl = imageFile
         ? await uploadPostImage(imageFile)
         : (removeImage ? null : editTarget?.image_url ?? null)
+      if (imageFile) uploadedImageUrl = imageUrl
 
       if (editTarget) {
-        await updatePost(editTarget.id, { category, title, content, imageUrl, icon })
+        const ownerSecret = getOwnerSecret(editTarget.id)
+        if (!ownerSecret) throw new Error('게시글 소유권 정보를 찾을 수 없습니다.')
+
+        const updated = await updatePost(editTarget.id, ownerSecret, { category, title, content, imageUrl, icon })
+        upsertPost(updated)
         saveLastPost({ id: editTarget.id, lat: editTarget.lat, lng: editTarget.lng })
+
       } else {
-        const distanceFromMe = userLocation
-          ? getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng)
-          : 0
-        const postType = distanceFromMe > EXTERNAL_DISTANCE_METERS ? 'external' : 'local'
-        const ownerSecret = generateOwnerSecret()
+        const request = pendingCreateRef.current ?? {
+          id: createRequestId(),
+          ownerSecret: generateOwnerSecret(),
+        }
+        pendingCreateRef.current = request
 
         const created = await createPost({
+          id: request.id,
+          actorToken: getActorToken(),
+          ownerSecret: request.ownerSecret,
+          authorLat: trustedLocation.lat,
+          authorLng: trustedLocation.lng,
           lat: pendingPosition.lat,
           lng: pendingPosition.lng,
           category,
           title,
           content,
-          postType,
           imageUrl,
           icon,
-          ownerSecret,
         })
+        upsertPost(created)
         saveLastPost({ id: created.id, lat: pendingPosition.lat, lng: pendingPosition.lng })
-        saveOwnership(created.id, ownerSecret)
+        if (!saveOwnership(created.id, request.ownerSecret)) {
+          await deletePost(created.id, request.ownerSecret)
+          removePost(created.id)
+          throw new Error('이 브라우저에 소유권 정보를 저장할 수 없습니다.')
+        }
       }
 
       if (pendingPinConvert) {
-        await pendingPinConvert()
+        try {
+          await pendingPinConvert()
+        } catch (error) {
+          console.warn('[App] 게시글로 전환한 핀 정리 실패', error)
+        }
       }
 
       closeCreateModal()
     } catch (err) {
       console.error('[App] 게시글 저장 실패', err)
-      setSubmitError('저장에 실패했습니다. 다시 시도해주세요.')
+      if (uploadedImageUrl) {
+        removePostImage(uploadedImageUrl).catch((error) => {
+          console.warn('[App] 실패한 업로드 이미지 정리 실패', error)
+        })
+      }
+      setSubmitError(err?.message || '저장에 실패했습니다. 다시 시도해주세요.')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const willBeExternal = !editTarget && Boolean(pendingPosition) && Boolean(userLocation)
-    && getDistanceMeters(userLocation.lat, userLocation.lng, pendingPosition.lat, pendingPosition.lng) > EXTERNAL_DISTANCE_METERS
+  const willBeExternal = !editTarget && Boolean(pendingPosition) && Boolean(trustedLocation)
+    && getDistanceMeters(trustedLocation.lat, trustedLocation.lng, pendingPosition.lat, pendingPosition.lng) > EXTERNAL_DISTANCE_METERS
+
+  function openTargetCommunity(target) {
+    setCommunityTarget(target ?? null)
+    setActiveTab('community')
+  }
+
+  function handleTabChange(nextTab) {
+    if (nextTab === 'community') setCommunityTarget(null)
+    setActiveTab(nextTab)
+  }
 
   return (
     <div className="app">
       <div className="app-content">
-        {activeTab === 'map' && (
+        {postsStatus === 'error' && (
+          <div className="app-status-banner" role="alert">
+            <span>{postsError?.message || '게시글을 불러오지 못했습니다.'}</span>
+            <button type="button" onClick={refetchPosts}>다시 시도</button>
+          </div>
+        )}
+
+        {locationActionError && (
+          <div className="app-status-banner" role="alert">
+            <span>{locationActionError}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setLocationActionError(null)
+                retryLocation()
+              }}
+            >
+              위치 다시 확인
+            </button>
+          </div>
+        )}
+
+        <section className="app-tab-panel" hidden={activeTab !== 'map'} aria-hidden={activeTab !== 'map'}>
           <MapView
-            userLocation={userLocation}
-            locationLoading={locationLoading}
-            locationDenied={locationDenied}
+            active={activeTab === 'map'}
+            userLocation={displayLocation}
+            locationLoading={locationStatus === 'loading'}
+            locationDenied={!isLocationTrusted && locationStatus !== 'loading'}
+            locationError={locationError}
             nearbyPosts={nearbyPosts}
             activePosts={activePosts}
             activeCategories={activeCategories}
             onToggleCategory={toggleCategory}
             onSelectPost={setSelectedPostId}
-            onOpenCommunity={() => setActiveTab('community')}
+            onOpenCommunity={openTargetCommunity}
             onOpenCreateModal={openCreateModal}
           />
-        )}
+        </section>
 
-        {activeTab === 'community' && (
+        <section className="app-tab-panel" hidden={activeTab !== 'community'} aria-hidden={activeTab !== 'community'}>
           <CommunityPage
-            posts={communityPosts}
+            posts={activePosts}
+            userLocation={displayLocation}
+            isLocationTrusted={isLocationTrusted}
+            locationStatus={locationStatus}
+            communityTarget={communityTarget}
+            onResetTarget={() => setCommunityTarget(null)}
+            postsStatus={postsStatus}
+            postsError={postsError}
+            onRetry={refetchPosts}
+            onWrite={openCreateModal}
             activeCategories={activeCategories}
             onToggleCategory={toggleCategory}
             onSelectPost={setSelectedPostId}
           />
-        )}
+        </section>
 
-        {activeTab === 'chat' && <ChatRoom userLocation={userLocation} />}
+        <section className="app-tab-panel" hidden={activeTab !== 'chat'} aria-hidden={activeTab !== 'chat'}>
+          <ChatRoom
+            trustedLocation={trustedLocation}
+            locationStatus={locationStatus}
+            onRetryLocation={retryLocation}
+          />
+        </section>
 
-        {activeTab === 'menu' && (
+        <section className="app-tab-panel" hidden={activeTab !== 'menu'} aria-hidden={activeTab !== 'menu'}>
           <MenuPage
             posts={activePosts}
             activeCategories={activeCategories}
@@ -217,15 +363,19 @@ function App() {
             onSelectPost={setSelectedPostId}
             onOpenCreateModal={openCreateModal}
           />
-        )}
+        </section>
       </div>
 
-      <TabBar activeTab={activeTab} onChange={setActiveTab} />
+      <TabBar activeTab={activeTab} onChange={handleTabChange} />
 
       {selectedPost && (
         <PostDetail
           post={selectedPost}
-          onClose={() => setSelectedPostId(null)}
+          onClose={() => {
+            setSelectedPostId(null)
+            setPostActionError(null)
+          }}
+          actionError={postActionError}
           onConfirm={() => handleConfirm(selectedPost)}
           confirming={confirmingPostId === selectedPost.id}
           onLike={() => handleLike(selectedPost)}

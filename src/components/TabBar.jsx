@@ -8,12 +8,14 @@ const TABS = [
 // 지도/커뮤니티/채팅/메뉴를 오가는 하단 탭바.
 function TabBar({ activeTab, onChange }) {
   return (
-    <nav className="tab-bar">
+    <nav className="tab-bar" aria-label="주요 메뉴">
       {TABS.map((tab) => (
         <button
           key={tab.key}
           type="button"
           className={`tab-bar-item${activeTab === tab.key ? ' active' : ''}`}
+          aria-current={activeTab === tab.key ? 'page' : undefined}
+          aria-label={`${tab.label} 탭`}
           onClick={() => onChange(tab.key)}
         >
           <span className="tab-bar-icon">{tab.icon}</span>

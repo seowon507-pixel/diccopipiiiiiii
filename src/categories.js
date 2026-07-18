@@ -37,10 +37,15 @@ export function categoryHasExpiry(category) {
 // MapView(마커 반투명 처리)와 usePosts(반경 필터의 만료 판정)가 공유하는 공용 함수 — 중복 정의 금지.
 export function getElapsedRatio(post, referenceTime) {
   const validMinutes = CATEGORY_VALID_MINUTES[post.category]
+  const createdAt = new Date(post.created_at).getTime()
+  if (!Number.isFinite(createdAt) || !Number.isFinite(referenceTime)) return Number.POSITIVE_INFINITY
+
+  // 서버/기기 시계 오차는 5분까지 허용하되, 먼 미래 데이터는 노출하지 않는다.
+  if (createdAt > referenceTime + 5 * 60 * 1000) return Number.POSITIVE_INFINITY
   if (validMinutes == null) return 0
 
   const validMs = validMinutes * 60 * 1000
-  const elapsedMs = referenceTime - new Date(post.created_at).getTime()
+  const elapsedMs = Math.max(0, referenceTime - createdAt)
   return elapsedMs / validMs
 }
 

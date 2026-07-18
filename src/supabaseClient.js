@@ -1,102 +1,164 @@
 import { createClient } from '@supabase/supabase-js'
 import dummyData from '../dummy-data.json'
+import { generateOwnerSecret, getOrCreateActorToken } from './myPosts'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
+const useDummyData = import.meta.env.DEV && import.meta.env.VITE_USE_DUMMY_DATA === 'true'
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const POST_IMAGE_BUCKET = 'post-images'
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 
-// posts 목록 조회. Supabase 연결/조회 실패 시 dummy-data.json으로 대체한다.
-export async function getPosts() {
-  try {
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-    return data
-  } catch (err) {
-    console.warn('[supabaseClient] posts 조회 실패, dummy-data.json으로 대체합니다.', err)
-    return dummyData.posts
+export class BackendConfigurationError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'BackendConfigurationError'
+    this.code = 'BACKEND_CONFIG'
   }
 }
 
-// 새 게시글 등록. postType: 'local'(내 위치 500m 이내) | 'external'(500m 밖에서 쓴 외부작성)
-// 소유권 확인용 ownerSecret을 서버의 post_owners 테이블에 같이 기록한다(삭제 권한 확인용).
-export async function createPost({ lat, lng, category, title, content, postType, imageUrl, icon, ownerSecret }) {
-  const { data, error } = await supabase.rpc('create_post_with_owner', {
+function isValidSupabaseUrl(value) {
+  if (!value) return false
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname))
+  } catch {
+    return false
+  }
+}
+
+export const backendConfigurationError = isValidSupabaseUrl(supabaseUrl) && supabaseAnonKey
+  ? null
+  : new BackendConfigurationError('Supabase URL 또는 anon key가 설정되지 않았거나 올바르지 않습니다.')
+
+// A missing environment must not crash module evaluation. Callers receive a typed error instead.
+export const supabase = backendConfigurationError
+  ? null
+  : createClient(supabaseUrl, supabaseAnonKey)
+
+function requireSupabase() {
+  if (!supabase) throw backendConfigurationError
+  return supabase
+}
+
+function randomId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
+  return generateOwnerSecret()
+}
+
+function actorTokenOrDefault(actorToken) {
+  return typeof actorToken === 'string' && actorToken.length >= 32
+    ? actorToken
+    : getOrCreateActorToken()
+}
+
+function unwrapRpcRow(data) {
+  return Array.isArray(data) ? (data[0] ?? null) : data
+}
+
+async function rpc(name, params) {
+  const { data, error } = await requireSupabase().rpc(name, params)
+  if (error) throw error
+  return unwrapRpcRow(data)
+}
+
+async function rpcRows(name, params) {
+  const { data, error } = await requireSupabase().rpc(name, params)
+  if (error) throw error
+  return data ?? []
+}
+
+function unavailableSubscription(onStatus) {
+  queueMicrotask(() => onStatus?.('CONFIG_ERROR', backendConfigurationError))
+  return () => {}
+}
+
+function activateChannel(channel, onStatus) {
+  channel.subscribe((status, error) => onStatus?.(status, error ?? null))
+  return () => {
+    supabase?.removeChannel(channel)
+  }
+}
+
+export async function getPosts() {
+  if (useDummyData) return dummyData.posts
+
+  const { data, error } = await requireSupabase()
+    .from('posts')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+  return data
+}
+
+// The id is generated before the request so retrying the same payload is idempotent.
+export async function createPost({
+  id = randomId(),
+  actorToken,
+  ownerSecret,
+  authorLat,
+  authorLng,
+  lat,
+  lng,
+  category,
+  title,
+  content,
+  imageUrl,
+  icon,
+}) {
+  if (!ownerSecret) throw new TypeError('ownerSecret is required')
+
+  return rpc('create_post_v2', {
+    p_post_id: id,
+    p_actor_token: actorTokenOrDefault(actorToken),
+    p_owner_secret: ownerSecret,
+    p_author_lat: authorLat ?? lat,
+    p_author_lng: authorLng ?? lng,
     p_lat: lat,
     p_lng: lng,
     p_category: category,
     p_title: title,
     p_content: content,
-    p_post_type: postType,
     p_image_url: imageUrl ?? null,
-    p_owner_secret: ownerSecret,
+    p_icon: icon ?? null,
   })
-
-  if (error) throw error
-  if (icon) return updatePostIcon(data.id, icon)
-  return data
 }
 
-// create_post_with_owner RPC는 icon 인자를 받지 않으므로, 등록 직후 별도 UPDATE로 반영한다.
-async function updatePostIcon(id, icon) {
-  const { data, error } = await supabase
-    .from('posts')
-    .update({ icon })
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) throw error
-  return data
-}
-
-// 지도 위 "빈 핀"(아직 글이 없는 위치 마커) 목록 조회
 export async function getPins() {
-  const { data, error } = await supabase.from('pins').select('*')
+  const { data, error } = await requireSupabase().from('pins').select('*')
   if (error) throw error
   return data
 }
 
-// 빈 핀 생성. 소유권 확인용 ownerSecret을 pin_owners 테이블에 같이 기록한다(삭제 권한 확인용).
-export async function createPin({ lat, lng, ownerSecret }) {
-  const { data, error } = await supabase.rpc('create_pin_with_owner', {
+export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSecret }) {
+  if (!ownerSecret) throw new TypeError('ownerSecret is required')
+
+  return rpc('create_pin_v2', {
+    p_pin_id: id,
+    p_actor_token: actorTokenOrDefault(actorToken),
     p_lat: lat,
     p_lng: lng,
     p_owner_secret: ownerSecret,
   })
-
-  if (error) throw error
-  return data
 }
 
-// 핀 삭제. ownerSecret이 서버에 기록된 값과 일치할 때만 실제로 삭제된다.
 export async function deletePin(id, ownerSecret) {
-  const { data, error } = await supabase.rpc('delete_own_pin', {
+  return rpc('delete_own_pin_v2', {
     p_pin_id: id,
-    p_secret: ownerSecret,
+    p_owner_secret: ownerSecret,
   })
-
-  if (error) throw error
-  return data // true/false
 }
 
-// 작성 후 일정 시간이 지난 빈 핀을 서버에서 실제로 지운다(소유자 확인 없이, 나이만 본다).
-// 접속한 아무 클라이언트나 주기적으로 호출해도 안전하다 — 이미 만료된 행만 지우는 멱등 연산.
-// 삭제되면 pins-realtime DELETE 이벤트로 다른 사용자 화면에서도 즉시 사라진다.
-export async function deleteExpiredPins(olderThanMinutes) {
-  const { error } = await supabase.rpc('delete_expired_pins', {
-    p_older_than_minutes: olderThanMinutes,
-  })
-
-  if (error) throw error
+// The v2 RPC owns the retention constant. A caller can no longer lower it to mass-delete fresh pins.
+export async function deleteExpiredPins() {
+  await rpc('delete_expired_pins_v2', {})
 }
 
-// pins 테이블의 등록(INSERT)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
-export function subscribeToPinChanges({ onInsert, onDelete }) {
+export function subscribeToPinChanges({ onInsert, onDelete, onStatus } = {}) {
+  if (!supabase) return unavailableSubscription(onStatus)
+
   const channel = supabase
     .channel('pins-realtime')
     .on(
@@ -109,85 +171,94 @@ export function subscribeToPinChanges({ onInsert, onDelete }) {
       { event: 'DELETE', schema: 'public', table: 'pins' },
       (payload) => onDelete?.(payload.old),
     )
-    .subscribe()
 
-  return () => {
-    supabase.removeChannel(channel)
-  }
+  return activateChannel(channel, onStatus)
 }
 
-// 게시글 삭제. ownerSecret이 서버에 기록된 값과 일치할 때만 실제로 삭제된다.
 export async function deletePost(id, ownerSecret) {
-  const { data, error } = await supabase.rpc('delete_own_post', {
+  return rpc('delete_own_post_v2', {
     p_post_id: id,
-    p_secret: ownerSecret,
+    p_owner_secret: ownerSecret,
   })
-
-  if (error) throw error
-  return data // true/false
 }
 
-// 게시글 이미지를 Storage에 업로드하고 공개 URL을 반환한다.
 export async function uploadPostImage(file) {
-  const ext = file.name.split('.').pop()
-  const path = `${crypto.randomUUID()}.${ext}`
+  if (!file || !ALLOWED_IMAGE_TYPES.has(file.type)) {
+    throw new TypeError('JPEG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.')
+  }
+  if (file.size > MAX_IMAGE_BYTES) throw new RangeError('이미지는 5MB 이하여야 합니다.')
 
-  const { error } = await supabase.storage.from('post-images').upload(path, file)
+  const extension = file.type === 'image/jpeg' ? 'jpg' : file.type.split('/')[1]
+  const path = `${randomId()}.${extension}`
+  const client = requireSupabase()
+  const { error } = await client.storage.from(POST_IMAGE_BUCKET).upload(path, file, {
+    contentType: file.type,
+    upsert: false,
+  })
   if (error) throw error
 
-  const { data } = supabase.storage.from('post-images').getPublicUrl(path)
+  const { data } = client.storage.from(POST_IMAGE_BUCKET).getPublicUrl(path)
   return data.publicUrl
 }
 
-// 기존 게시글 내용 수정 (수정 시각을 updated_at에 기록)
-export async function updatePost(id, { category, title, content, imageUrl, icon }) {
-  const { data, error } = await supabase
-    .from('posts')
-    .update({
-      category,
-      title,
-      content,
-      image_url: imageUrl ?? null,
-      icon: icon ?? null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select()
-    .single()
-
-  if (error) throw error
-  return data
+function postImagePathFromUrl(imageUrl) {
+  if (!imageUrl) return null
+  try {
+    const url = new URL(imageUrl)
+    const marker = `/storage/v1/object/public/${POST_IMAGE_BUCKET}/`
+    const index = url.pathname.indexOf(marker)
+    return index < 0 ? null : decodeURIComponent(url.pathname.slice(index + marker.length))
+  } catch {
+    return null
+  }
 }
 
-// 신뢰도 확인(confirm_count) 1 증가 — 실시간 알림 카테고리 전용
-export async function incrementConfirmCount(id, currentCount) {
-  const { data, error } = await supabase
-    .from('posts')
-    .update({ confirm_count: currentCount + 1 })
-    .eq('id', id)
-    .select()
-    .single()
+// Cleanup is queued in Postgres and completed by the service-role cleanup worker through Storage API.
+export async function cleanupPostImage(imageUrl, reason = 'abandoned_upload') {
+  const objectPath = postImagePathFromUrl(imageUrl)
+  if (!objectPath) return false
 
-  if (error) throw error
-  return data
+  await rpc('enqueue_storage_cleanup_v1', {
+    p_bucket_id: POST_IMAGE_BUCKET,
+    p_object_path: objectPath,
+    p_reason: reason,
+  })
+  return true
 }
 
-// 추천(좋아요) 1 증가 — 자유주제 카테고리 전용
-export async function incrementLikes(id, currentCount) {
-  const { data, error } = await supabase
-    .from('posts')
-    .update({ likes_count: currentCount + 1 })
-    .eq('id', id)
-    .select()
-    .single()
+export const queuePostImageCleanup = cleanupPostImage
+export const removePostImage = cleanupPostImage
 
-  if (error) throw error
-  return data
+export async function updatePost(id, ownerSecret, { category, title, content, imageUrl, icon }) {
+  if (!ownerSecret) throw new TypeError('ownerSecret is required')
+
+  return rpc('update_own_post_v2', {
+    p_post_id: id,
+    p_owner_secret: ownerSecret,
+    p_category: category,
+    p_title: title,
+    p_content: content,
+    p_image_url: imageUrl ?? null,
+    p_icon: icon ?? null,
+  })
 }
 
-// 특정 게시글의 댓글 목록 조회
+export async function incrementConfirmCount(id, actorToken) {
+  return rpc('confirm_post_v2', {
+    p_post_id: id,
+    p_actor_token: actorTokenOrDefault(actorToken),
+  })
+}
+
+export async function incrementLikes(id, actorToken) {
+  return rpc('like_post_v2', {
+    p_post_id: id,
+    p_actor_token: actorTokenOrDefault(actorToken),
+  })
+}
+
 export async function getComments(postId) {
-  const { data, error } = await supabase
+  const { data, error } = await requireSupabase()
     .from('comments')
     .select('*')
     .eq('post_id', postId)
@@ -197,76 +268,115 @@ export async function getComments(postId) {
   return data
 }
 
-// 댓글 등록
-export async function createComment(postId, content) {
-  const { data, error } = await supabase
-    .from('comments')
-    .insert({ post_id: postId, content })
-    .select()
-    .single()
-
-  if (error) throw error
-  return data
+export async function createComment(postId, content, { id = randomId(), actorToken } = {}) {
+  return rpc('create_comment_v2', {
+    p_comment_id: id,
+    p_post_id: postId,
+    p_actor_token: actorTokenOrDefault(actorToken),
+    p_content: content,
+  })
 }
 
-// 특정 게시글의 새 댓글을 실시간으로 구독한다. 구독 해제 함수를 반환한다.
-export function subscribeToComments(postId, onInsert) {
+export function subscribeToComments(postId, onInsert, onStatus) {
+  if (!supabase) return unavailableSubscription(onStatus)
+
   const channel = supabase
     .channel(`comments-${postId}`)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` },
-      (payload) => onInsert(payload.new),
-    )
-    .subscribe()
-
-  return () => {
-    supabase.removeChannel(channel)
-  }
-}
-
-// 동네 전체 공용 채팅 메시지 최근 200개 조회(오래된 순으로 정렬해 반환).
-export async function getChatMessages() {
-  const { data, error } = await supabase
-    .from('chat_messages')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(200)
-
-  if (error) throw error
-  return data.reverse()
-}
-
-// 채팅 메시지 전송. 발신 위치(lat, lng)를 함께 저장해 클라이언트가 반경 필터링에 쓴다.
-export async function sendChatMessage({ lat, lng, content }) {
-  const { data, error } = await supabase
-    .from('chat_messages')
-    .insert({ lat, lng, content })
-    .select()
-    .single()
-
-  if (error) throw error
-  return data
-}
-
-// chat_messages 테이블의 새 메시지(INSERT)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
-export function subscribeToChatMessages(onInsert) {
-  const channel = supabase
-    .channel('chat-messages-realtime')
-    .on(
-      'postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'chat_messages' },
       (payload) => onInsert?.(payload.new),
     )
-    .subscribe()
+
+  return activateChannel(channel, onStatus)
+}
+
+export async function getNearbyChatMessages({
+  lat,
+  lng,
+  radiusMeters = 1000,
+  limit = 200,
+  before = null,
+}) {
+  const rows = await rpcRows('get_nearby_chat_messages_v2', {
+    p_lat: lat,
+    p_lng: lng,
+    p_radius_meters: radiusMeters,
+    p_limit: limit,
+    p_before: before,
+  })
+
+  return [...rows].reverse()
+}
+
+export function watchNearbyChatMessages({
+  lat,
+  lng,
+  radiusMeters = 1000,
+  intervalMs = 5000,
+  onMessages,
+  onError,
+  onStatus,
+}) {
+  let stopped = false
+  let timer = null
+  let running = false
+
+  const refresh = async () => {
+    if (stopped || running) return
+    running = true
+    onStatus?.('CONNECTING', null)
+    try {
+      const messages = await getNearbyChatMessages({ lat, lng, radiusMeters })
+      if (!stopped) {
+        onMessages?.(messages)
+        onStatus?.('SUBSCRIBED', null)
+      }
+    } catch (error) {
+      if (!stopped) {
+        onError?.(error)
+        onStatus?.('CHANNEL_ERROR', error)
+      }
+    } finally {
+      running = false
+    }
+  }
+
+  refresh()
+  timer = globalThis.setInterval(refresh, Math.max(1000, intervalMs))
 
   return () => {
-    supabase.removeChannel(channel)
+    stopped = true
+    if (timer != null) globalThis.clearInterval(timer)
+    onStatus?.('CLOSED', null)
   }
 }
 
-// posts 테이블의 등록(INSERT)/수정(UPDATE)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
-export function subscribeToPostChanges({ onInsert, onUpdate, onDelete }) {
+// Kept as an explicit migration aid. Calling it without a location is no longer privacy-safe.
+export async function getChatMessages(options) {
+  if (!options) throw new TypeError('getNearbyChatMessages({ lat, lng })를 사용해야 합니다.')
+  return getNearbyChatMessages(options)
+}
+
+export async function sendChatMessage({ id = randomId(), actorToken, lat, lng, content }) {
+  return rpc('send_chat_message_v2', {
+    p_message_id: id,
+    p_actor_token: actorTokenOrDefault(actorToken),
+    p_lat: lat,
+    p_lng: lng,
+    p_content: content,
+  })
+}
+
+// Global chat postgres_changes exposed exact coordinates, so v2 deliberately has no equivalent.
+export function subscribeToChatMessages(_onInsert, onStatus) {
+  queueMicrotask(() => onStatus?.('CLOSED', new Error('watchNearbyChatMessages를 사용해야 합니다.')))
+  return () => {}
+}
+
+export function subscribeToPostChanges({ onInsert, onUpdate, onDelete, onStatus } = {}) {
+  if (!supabase) return unavailableSubscription(onStatus)
+
   const channel = supabase
     .channel('posts-realtime')
     .on(
@@ -284,9 +394,6 @@ export function subscribeToPostChanges({ onInsert, onUpdate, onDelete }) {
       { event: 'DELETE', schema: 'public', table: 'posts' },
       (payload) => onDelete?.(payload.old),
     )
-    .subscribe()
 
-  return () => {
-    supabase.removeChannel(channel)
-  }
+  return activateChannel(channel, onStatus)
 }
