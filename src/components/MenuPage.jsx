@@ -1,20 +1,35 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
 import RecoveryCode from './RecoveryCode.jsx'
+import AppIcon from './AppIcon.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
-import { Glyph } from '../iconGlyphs'
+import { BASE_UI_THEME, getUiThemeMeta, UI_THEME_OPTIONS } from '../uiThemes'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
-function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onOpenCreateModal, userLocation, now }) {
+function MenuPage({
+  posts,
+  activeCategories,
+  onToggleCategory,
+  onSelectPost,
+  onOpenCreateModal,
+  onOpenQuickPost,
+  quickPostDisabled = false,
+  active = true,
+  uiTheme = BASE_UI_THEME,
+  onUiThemeChange,
+  userLocation,
+  now,
+}) {
   const [view, setView] = useState('home')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searched, setSearched] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState(null)
+  const themeOptionsRef = useRef(null)
   // 위치 보호(현재 위치에 올리는 글/채팅을 대략적 위치로 흐리기) — 기본 ON, 로컬 저장.
   const [locationPrivacy, setLocationPrivacyState] = useState(getLocationPrivacy)
 
@@ -28,6 +43,25 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
   // 이미 글이 있는 건물부터 먼저 보여준다(거리 제한 없음) — 건물을 눌러야 그 자리의
   // 커뮤니티(피드+글쓰기)로 들어간다. 새 장소를 찾고 싶으면 아래 검색을 쓴다.
   const buildings = useMemo(() => groupPostsByBuilding(posts), [posts])
+  const activeTheme = getUiThemeMeta(uiTheme)
+
+  // 좁은 화면에서도 현재 선택한 시안이 가로 목록 안에 바로 보이게 맞춘다.
+  useEffect(() => {
+    if (!active) return
+    const container = themeOptionsRef.current
+    const activeOption = container?.querySelector('[aria-pressed="true"]')
+    if (!container || !activeOption) return
+
+    const containerRect = container.getBoundingClientRect()
+    const activeRect = activeOption.getBoundingClientRect()
+    const activeLeft = activeRect.left - containerRect.left + container.scrollLeft
+    const left = Math.max(0, activeLeft - (container.clientWidth - activeRect.width) / 2)
+    if (typeof container.scrollTo === 'function') {
+      container.scrollTo({ left, behavior: 'auto' })
+    } else {
+      container.scrollLeft = left
+    }
+  }, [active, uiTheme])
 
   function handleOpenLocation() {
     setView('location')
@@ -76,56 +110,134 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
     <div className="menu-page">
       {view === 'home' && (
         <>
-          <h1 className="menu-page-title">메뉴</h1>
-          <div className="menu-card-list">
-            <button type="button" className="menu-card" onClick={() => setView('all')}>
-              <span className="menu-card-icon"><Glyph name="buildings" size={24} /></span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">전체 커뮤니티</span>
-                <span className="menu-card-desc">거리 제한 없이 모든 동네 글을 봐요</span>
+          <header className="menu-hero">
+            <span className="menu-hero-mark" aria-hidden="true">동네</span>
+            <span className="menu-hero-copy">
+              <span className="page-eyebrow">우리동네알림</span>
+              <h1 className="menu-page-title">동네 생활판</h1>
+              <span className="menu-hero-desc">소식·알림·내 기록을 한곳에서 관리합니다</span>
+            </span>
+          </header>
+
+          <section className="theme-lab" aria-label="디자인 실험실">
+            <div className="theme-lab-summary">
+              <span>
+                <span className="theme-lab-kicker">DESIGN LAB</span>
+                <strong>추가 UI 시안 5종</strong>
               </span>
-            </button>
-            <button type="button" className="menu-card" onClick={handleOpenLocation}>
-              <span className="menu-card-icon"><Glyph name="pin" size={24} /></span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">위치·건물별 커뮤니티</span>
-                <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
+              <span className="theme-lab-current">
+                {activeTheme.number} {activeTheme.name}
               </span>
-            </button>
-            <button type="button" className="menu-card" onClick={() => setView('notifications')}>
-              <span className="menu-card-icon"><Glyph name="bell" size={24} /></span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">알림 설정</span>
-                <span className="menu-card-desc">관심 지역·키워드에 새 글 오면 알려드려요</span>
-              </span>
-            </button>
-            <button type="button" className="menu-card" onClick={() => setView('recovery')}>
-              <span className="menu-card-icon"><Glyph name="key" size={24} /></span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">복구 코드</span>
-                <span className="menu-card-desc">폰을 바꿔도 내 글/핀을 계속 관리해요</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className="menu-card"
-              onClick={toggleLocationPrivacy}
-              aria-pressed={locationPrivacy}
-            >
-              <span className="menu-card-icon"><Glyph name="shield" size={24} /></span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">내 위치 보호</span>
-                <span className="menu-card-desc">
-                  {locationPrivacy
-                    ? '현재 위치에 올리는 글·채팅을 대략적인 위치로 표시해요'
-                    : '정확한 현재 위치가 그대로 표시돼요'}
+            </div>
+            <div ref={themeOptionsRef} className="theme-lab-options" aria-label="UI 시안 선택">
+              {UI_THEME_OPTIONS.map((theme) => (
+                <button
+                  key={theme.key}
+                  type="button"
+                  className="theme-lab-option"
+                  data-preview-theme={theme.key}
+                  aria-pressed={uiTheme === theme.key}
+                  onClick={() => onUiThemeChange?.(theme.key)}
+                >
+                  <span className="theme-lab-option-topline">
+                    <span className="theme-lab-number">{theme.number}</span>
+                    <span className="theme-lab-swatches" aria-hidden="true">
+                      {theme.swatches.map((color) => (
+                        <span key={color} style={{ backgroundColor: color }} />
+                      ))}
+                    </span>
+                  </span>
+                  <strong>{theme.name}</strong>
+                  <span>{theme.description}</span>
+                </button>
+              ))}
+            </div>
+            {uiTheme !== BASE_UI_THEME && (
+              <button
+                type="button"
+                className="theme-lab-reset"
+                onClick={() => onUiThemeChange?.(BASE_UI_THEME)}
+              >
+                02 골목 게시판으로 돌아가기
+              </button>
+            )}
+          </section>
+
+          <button
+            type="button"
+            className="menu-write-action"
+            disabled={quickPostDisabled}
+            onClick={onOpenQuickPost}
+          >
+            <AppIcon name="compose" size={18} />
+            지금 이 동네에 기록 남기기
+          </button>
+
+          <section className="menu-section" aria-labelledby="menu-explore-title">
+            <h2 id="menu-explore-title" className="menu-section-title">동네 둘러보기</h2>
+            <div className="menu-card-list">
+              <button type="button" className="menu-card" onClick={() => setView('all')}>
+                <span className="menu-card-icon menu-card-icon--community"><AppIcon name="globe" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">전체 커뮤니티</span>
+                  <span className="menu-card-desc">거리 제한 없이 모든 동네 글을 봐요</span>
                 </span>
-              </span>
-              <span className={`menu-card-toggle${locationPrivacy ? ' on' : ''}`} aria-hidden="true">
-                <span className="menu-card-toggle-knob" />
-              </span>
-            </button>
-          </div>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button type="button" className="menu-card" onClick={handleOpenLocation}>
+                <span className="menu-card-icon menu-card-icon--location"><AppIcon name="location" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">위치·건물별 커뮤니티</span>
+                  <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+            </div>
+          </section>
+
+          <section className="menu-section" aria-labelledby="menu-manage-title">
+            <h2 id="menu-manage-title" className="menu-section-title">내 정보와 안전</h2>
+            <div className="menu-card-list">
+              <button type="button" className="menu-card" onClick={() => setView('notifications')}>
+                <span className="menu-card-icon menu-card-icon--notification"><AppIcon name="bell" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">알림 설정</span>
+                  <span className="menu-card-desc">관심 지역·키워드의 새 소식을 놓치지 않아요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button type="button" className="menu-card" onClick={() => setView('recovery')}>
+                <span className="menu-card-icon menu-card-icon--recovery"><AppIcon name="key" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">복구 코드</span>
+                  <span className="menu-card-desc">기기를 바꿔도 내 글과 핀을 이어서 관리해요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button
+                type="button"
+                className="menu-card menu-card--privacy"
+                onClick={toggleLocationPrivacy}
+                aria-pressed={locationPrivacy}
+              >
+                <span className="menu-card-icon menu-card-icon--privacy"><AppIcon name="shield" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label-row">
+                    <span className="menu-card-label">내 위치 보호</span>
+                    {locationPrivacy && <span className="menu-card-status">보호 중</span>}
+                  </span>
+                  <span className="menu-card-desc">
+                    {locationPrivacy
+                      ? '글·채팅 위치를 동네 수준으로 안전하게 흐려요'
+                      : '정확한 현재 위치가 그대로 표시돼요'}
+                  </span>
+                </span>
+                <span className={`menu-card-toggle${locationPrivacy ? ' on' : ''}`} aria-hidden="true">
+                  <span className="menu-card-toggle-knob" />
+                </span>
+              </button>
+            </div>
+          </section>
         </>
       )}
 
@@ -195,7 +307,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                   placeholder="장소, 건물 검색"
                   onChange={(event) => setQuery(event.target.value)}
                 />
-                <button type="submit" className="place-search-button" aria-label="검색"><Glyph name="search" size={18} strokeWidth={2} /></button>
+                <button type="submit" className="place-search-button" aria-label="검색">🔍</button>
               </form>
 
               {searched && (
@@ -234,7 +346,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                     className="place-community-write-button"
                     onClick={() => onOpenCreateModal(selectedPlace.lat, selectedPlace.lng)}
                   >
-                    <Glyph name="pencil" size={16} strokeWidth={2} /> 글쓰기
+                    ✏️ 글쓰기
                   </button>
                 </div>
                 <button type="button" className="menu-location-reselect" onClick={() => setSelectedPlace(null)}>

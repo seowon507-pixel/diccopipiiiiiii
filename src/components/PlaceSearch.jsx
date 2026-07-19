@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import AppIcon from './AppIcon.jsx'
 
 // 카카오맵이 활성화된 경우에만 사용하는 장소/건물 검색. kakao.maps.services 라이브러리가 필요하다.
 function PlaceSearch({ kakao, kakaoMap, onWriteHere, onSelectPlace }) {
@@ -8,7 +9,6 @@ function PlaceSearch({ kakao, kakaoMap, onWriteHere, onSelectPlace }) {
   const [status, setStatus] = useState('idle')
   const rootRef = useRef(null)
   const inputRef = useRef(null)
-  // 검색 요청마다 번호를 매겨, 늦게 도착한 이전 검색 응답이 최신 검색 결과를 덮어쓰지 못하게 막는다.
   const searchGenerationRef = useRef(0)
 
   function closeResults({ restoreFocus = false } = {}) {
@@ -90,7 +90,7 @@ function PlaceSearch({ kakao, kakaoMap, onWriteHere, onSelectPlace }) {
           onChange={(event) => setQuery(event.target.value)}
         />
         <button type="submit" className="place-search-button" aria-label="검색">
-          🔍
+          <AppIcon name="search" size={18} />
         </button>
       </form>
 

@@ -25,6 +25,29 @@ export const CATEGORY_COLORS = {
   취미: '#8C4C74',
 }
 
+// 채워진 카테고리 칩 위에서 WCAG AA 대비를 확보하는 전경색.
+export const CATEGORY_ON_COLOR_TEXT = {
+  웨이팅: '#FFFFFF',
+  혼잡: '#FFFFFF',
+  사건사고: '#FFFFFF',
+  교통: '#FFFFFF',
+  동네질문: '#FFFFFF',
+  동네소식: '#FFFFFF',
+  맛집: '#FFFFFF',
+  일상: '#FFFFFF',
+  취미: '#FFFFFF',
+}
+
+// 흰 배경의 작은 카테고리 라벨은 원래 색보다 어두운 변형을 사용한다.
+export const CATEGORY_LABEL_COLORS = {
+  ...CATEGORY_COLORS,
+  혼잡: '#765121',
+  교통: '#276B4D',
+  동네소식: '#28626A',
+  맛집: '#9B3F2E',
+  일상: '#635C24',
+}
+
 // index.css의 --color-gray-500과 같은 값. 위와 같은 이유로 hex 리터럴 유지.
 export const DEFAULT_CATEGORY_COLOR = '#666666'
 
@@ -76,13 +99,22 @@ export function categoryHasExpiry(category) {
 // 만료 시점도 뒤로 밀려야 "오래된 정보"라는 판정이 실제와 맞아떨어진다.
 export function getElapsedRatio(post, referenceTime) {
   const validMinutes = CATEGORY_VALID_MINUTES[post.category]
+  const createdAt = new Date(post.created_at).getTime()
+  if (!Number.isFinite(createdAt) || !Number.isFinite(referenceTime)) return Number.POSITIVE_INFINITY
+
+  const lastUpdatedMs = new Date(post.updated_at ?? post.created_at).getTime()
+  const lastConfirmedMs = post.last_confirmed_at ? new Date(post.last_confirmed_at).getTime() : 0
+  if (!Number.isFinite(lastUpdatedMs) || (post.last_confirmed_at && !Number.isFinite(lastConfirmedMs))) {
+    return Number.POSITIVE_INFINITY
+  }
+
+  const referenceStart = Math.max(createdAt, lastUpdatedMs, lastConfirmedMs)
+  // 서버/기기 시계 오차는 5분까지 허용하되, 먼 미래 데이터는 노출하지 않는다.
+  if (referenceStart > referenceTime + 5 * 60 * 1000) return Number.POSITIVE_INFINITY
   if (validMinutes == null) return 0
 
   const validMs = validMinutes * 60 * 1000
-  const lastConfirmedMs = post.last_confirmed_at ? new Date(post.last_confirmed_at).getTime() : 0
-  const lastUpdatedMs = new Date(post.updated_at ?? post.created_at).getTime()
-  const referenceStart = Math.max(lastConfirmedMs, lastUpdatedMs)
-  const elapsedMs = referenceTime - referenceStart
+  const elapsedMs = Math.max(0, referenceTime - referenceStart)
   return elapsedMs / validMs
 }
 

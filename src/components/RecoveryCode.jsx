@@ -74,6 +74,9 @@ function RecoveryCode() {
           <input
             className="recovery-restore-input"
             value={inputCode}
+            minLength={32}
+            autoComplete="off"
+            spellCheck={false}
             placeholder="복구 코드를 붙여넣으세요"
             onChange={(event) => setInputCode(event.target.value)}
           />

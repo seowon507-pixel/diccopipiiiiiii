@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
-import { REALTIME_CATEGORIES, FREE_CATEGORIES, CATEGORY_COLORS, PIN_ICONS } from '../categories'
-import { Glyph, PIN_GLYPH } from '../iconGlyphs'
+import {
+  REALTIME_CATEGORIES,
+  FREE_CATEGORIES,
+  CATEGORY_COLORS,
+  CATEGORY_ON_COLOR_TEXT,
+  PIN_ICONS,
+} from '../categories'
 
 const TITLE_MAX_LENGTH = 40
 const CONTENT_MAX_LENGTH = 500
 const MIN_CONTENT_LENGTH = 2
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif'
 
 function PostModal({
   open,
@@ -29,10 +36,23 @@ function PostModal({
   const [imageError, setImageError] = useState(null)
   const [icon, setIcon] = useState(initialIcon)
   const fileInputRef = useRef(null)
+  const dialogRef = useRef(null)
+  const titleInputRef = useRef(null)
+  const objectUrlRef = useRef(null)
+  const closeRef = useRef(onClose)
+  const submittingRef = useRef(submitting)
+  closeRef.current = onClose
+  submittingRef.current = submitting
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+  }, [])
 
   // 모달이 열릴 때마다(새 글 작성 or 기존 글 수정) 입력값을 초기값으로 맞춘다.
   useEffect(() => {
     if (open) {
+      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
       setCategory(initialCategory)
       setTitle(initialTitle)
       setContent(initialContent)
@@ -42,6 +62,42 @@ function PostModal({
       setIcon(initialIcon)
     }
   }, [open, initialCategory, initialTitle, initialContent, initialImageUrl, initialIcon])
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const previousFocus = document.activeElement
+    const focusTimer = window.requestAnimationFrame(() => titleInputRef.current?.focus())
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        if (!submittingRef.current) closeRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+
+      const focusable = [...dialogRef.current.querySelectorAll(
+        'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )]
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.cancelAnimationFrame(focusTimer)
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocus?.focus?.()
+    }
+  }, [open])
 
   if (!open) return null
 
@@ -53,6 +109,7 @@ function PostModal({
     && !submitting
 
   function handleClose() {
+    if (submitting) return
     onClose()
   }
 
@@ -60,8 +117,9 @@ function PostModal({
     const file = event.target.files?.[0]
     if (!file) return
 
-    if (!file.type.startsWith('image/')) {
-      setImageError('이미지 파일만 올릴 수 있어요.')
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setImageError('JPG, PNG, WebP, GIF 이미지만 올릴 수 있어요.')
+      event.target.value = ''
       return
     }
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
@@ -71,10 +129,14 @@ function PostModal({
 
     setImageError(null)
     setImageFile(file)
-    setImagePreview(URL.createObjectURL(file))
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    objectUrlRef.current = URL.createObjectURL(file)
+    setImagePreview(objectUrlRef.current)
   }
 
   function handleRemoveImage() {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+    objectUrlRef.current = null
     setImageFile(null)
     setImagePreview(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -96,7 +158,12 @@ function PostModal({
               key={name}
               type="button"
               className={`post-modal-category-chip${category === name ? ' selected' : ''}`}
-              style={category === name ? { backgroundColor: CATEGORY_COLORS[name], borderColor: CATEGORY_COLORS[name] } : undefined}
+              style={category === name ? {
+                backgroundColor: CATEGORY_COLORS[name],
+                borderColor: CATEGORY_COLORS[name],
+                color: CATEGORY_ON_COLOR_TEXT[name],
+              } : undefined}
+              aria-pressed={category === name}
               onClick={() => setCategory(name)}
             >
               {name}
@@ -108,13 +175,24 @@ function PostModal({
   }
 
   return (
-    <div className="post-modal-backdrop" onClick={handleClose}>
-      <form className="post-modal" onClick={(event) => event.stopPropagation()} onSubmit={handleSubmit}>
-        <h2 className="post-modal-title">{isEditing ? '게시글 수정' : '무슨 일이 있나요?'}</h2>
+    <div
+      className="post-modal-backdrop"
+      onClick={(event) => event.target === event.currentTarget && handleClose()}
+    >
+      <form
+        ref={dialogRef}
+        className="post-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="post-modal-title"
+        aria-describedby={errorMessage ? 'post-modal-error' : undefined}
+        onSubmit={handleSubmit}
+      >
+        <h2 id="post-modal-title" className="post-modal-title">{isEditing ? '게시글 수정' : '무슨 일이 있나요?'}</h2>
 
         {isEditing && (
           <p className="post-modal-edit-notice">
-            5분 이내 근처(50m)에 작성한 글이 있어 수정 모드로 열었어요.
+            내가 작성한 글을 수정하고 있어요.
           </p>
         )}
         {!isEditing && willBeExternal && (
@@ -129,27 +207,30 @@ function PostModal({
         <div className="post-modal-icon-field">
           <p className="post-modal-category-group-label">핀 아이콘(선택)</p>
           <div className="post-modal-icons">
-            {PIN_ICONS.map(({ key }) => (
+            {PIN_ICONS.map(({ key, emoji }) => (
               <button
                 key={key}
                 type="button"
                 className={`post-modal-icon-chip${icon === key ? ' selected' : ''}`}
                 onClick={() => setIcon(icon === key ? null : key)}
-                aria-label={`아이콘 ${key}`}
+                aria-label={`아이콘 ${emoji}`}
+                aria-pressed={icon === key}
               >
-                <Glyph name={PIN_GLYPH[key]} size={22} strokeWidth={1.9} />
+                {emoji}
               </button>
             ))}
           </div>
         </div>
 
         <input
+          ref={titleInputRef}
           className="post-modal-title-input"
           value={title}
           maxLength={TITLE_MAX_LENGTH}
           placeholder="제목"
           spellCheck="true"
           lang="ko"
+          aria-label="게시글 제목"
           onChange={(event) => setTitle(event.target.value)}
         />
 
@@ -181,7 +262,7 @@ function PostModal({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept={IMAGE_ACCEPT}
                 onChange={handleImageChange}
                 hidden
               />
@@ -190,10 +271,10 @@ function PostModal({
           {imageError && <p className="post-modal-error">{imageError}</p>}
         </div>
 
-        {errorMessage && <p className="post-modal-error">{errorMessage}</p>}
+        {errorMessage && <p id="post-modal-error" className="post-modal-error" role="alert">{errorMessage}</p>}
 
         <div className="post-modal-actions">
-          <button type="button" className="post-modal-cancel" onClick={handleClose}>
+          <button type="button" className="post-modal-cancel" disabled={submitting} onClick={handleClose}>
             취소
           </button>
           <button type="submit" className="post-modal-submit" disabled={!canSubmit}>

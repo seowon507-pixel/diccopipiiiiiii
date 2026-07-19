@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CATEGORIES, CATEGORY_COLORS, getReactionCount } from '../categories'
+import { CATEGORIES, CATEGORY_COLORS, CATEGORY_ON_COLOR_TEXT, getReactionCount } from '../categories'
 import { getDistanceMeters } from '../geo'
 import { filterPostsWithinRadius, COMMUNITY_RADIUS_METERS } from '../usePosts'
 import { getFavoriteLocations, addFavoriteLocation, removeFavoriteLocation } from '../favoriteLocations'
@@ -12,11 +12,20 @@ const SORT_OPTIONS = [
   { key: 'distance', label: '거리순' },
 ]
 
-// fallbackPosts: posts 자체가 비어 있을 때 대신 보여줄 위치 무관 인기 콘텐츠(TrendingFallback)이자,
-// 즐겨찾기 위치를 골랐을 때 그 좌표 기준으로 다시 반경 필터링할 더 넓은 후보군이기도 하다 —
-// posts는 이미 "내 주변 500m"처럼 특정 반경/장소로 좁혀져 있는 경우가 많아 다른 동네에 저장한
-// 즐겨찾기("우리 아파트" 등)를 그 안에서는 찾을 수 없기 때문이다.
-function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts = [], userLocation = null, now }) {
+function CommunityFeed({
+  posts = [],
+  activeCategories = new Set(),
+  onToggleCategory,
+  onSelectPost,
+  status = 'success',
+  errorMessage = null,
+  contextLabel = '이 위치',
+  onRetry,
+  onWrite,
+  fallbackPosts = [],
+  userLocation = null,
+  now,
+}) {
   const [searchText, setSearchText] = useState('')
   const [sortKey, setSortKey] = useState('latest')
   const [favorites, setFavorites] = useState(() => getFavoriteLocations())
@@ -71,6 +80,40 @@ function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost
     setActiveFavoriteId((prev) => (prev === id ? null : prev))
   }
 
+  const hasSearch = Boolean(searchText.trim())
+  const allCategoriesOff = activeCategories.size === 0
+  const resolvedErrorMessage = typeof errorMessage === 'string' ? errorMessage : errorMessage?.message
+
+  function renderState() {
+    if (status === 'loading') {
+      return <p className="community-empty" role="status">게시글을 불러오는 중...</p>
+    }
+
+    if (status === 'error' || resolvedErrorMessage) {
+      return (
+        <div className="community-empty-state" role="alert">
+          <p>{resolvedErrorMessage || '게시글을 불러오지 못했어요.'}</p>
+          {onRetry && <button type="button" onClick={onRetry}>다시 시도</button>}
+        </div>
+      )
+    }
+
+    if (allCategoriesOff) {
+      return <p className="community-empty">표시할 카테고리를 하나 이상 선택해 주세요.</p>
+    }
+
+    if (hasSearch && rankedPosts.length === 0) {
+      return (
+        <div className="community-empty-state">
+          <p>검색 결과가 없어요.</p>
+          <button type="button" onClick={() => setSearchText('')}>검색어 지우기</button>
+        </div>
+      )
+    }
+
+    return null
+  }
+
   return (
     <div className="community-feed">
       <input
@@ -88,8 +131,13 @@ function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost
               key={name}
               type="button"
               className={`community-category-chip${active ? ' active' : ''}`}
-              style={active ? { backgroundColor: CATEGORY_COLORS[name], borderColor: CATEGORY_COLORS[name] } : undefined}
-              onClick={() => onToggleCategory(name)}
+              style={active ? {
+                backgroundColor: CATEGORY_COLORS[name],
+                borderColor: CATEGORY_COLORS[name],
+                color: CATEGORY_ON_COLOR_TEXT[name],
+              } : undefined}
+              aria-pressed={active}
+              onClick={() => onToggleCategory?.(name)}
             >
               {name}
             </button>
@@ -103,6 +151,7 @@ function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost
             key={option.key}
             type="button"
             className={`community-sort-chip${sortKey === option.key ? ' active' : ''}`}
+            aria-pressed={sortKey === option.key}
             onClick={() => setSortKey(option.key)}
           >
             {option.label}
@@ -177,13 +226,14 @@ function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost
       )}
 
       <div className="community-list">
-        {basePosts.length === 0 ? (
+        {renderState() ?? (basePosts.length === 0 ? (
           <div className="community-empty-state">
             <p className="community-empty">
               {activeFavorite
                 ? `${activeFavorite.name} 주변엔 아직 글이 없어요.`
-                : '이 동네엔 아직 글이 없어요. 첫 글을 남겨보는 건 어때요?'}
+                : `${contextLabel} 반경 500m에는 아직 글이 없어요. 첫 글을 남겨보는 건 어때요?`}
             </p>
+            {onWrite && <button type="button" onClick={onWrite}>첫 글 작성하기</button>}
             <TrendingFallback posts={fallbackPosts} onSelectPost={onSelectPost} userLocation={userLocation} now={referenceTime} />
           </div>
         ) : rankedPosts.length === 0 ? (
@@ -195,10 +245,10 @@ function CommunityFeed({ posts, activeCategories, onToggleCategory, onSelectPost
               post={post}
               distance={distance}
               now={referenceTime}
-              onClick={() => onSelectPost(post.id)}
+              onClick={() => onSelectPost?.(post.id)}
             />
           ))
-        )}
+        ))}
       </div>
     </div>
   )

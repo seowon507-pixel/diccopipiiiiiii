@@ -1,22 +1,85 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import TrendingFallback from './TrendingFallback.jsx'
-import { groupPostsByBuilding } from '../usePosts'
+import { COMMUNITY_RADIUS_METERS, filterPostsWithinRadius, groupPostsByBuilding } from '../usePosts'
 
 // 지도와 별도의 전체화면 커뮤니티 탭. 표시 데이터(posts)는 App에서 지도 탭과 공유한다(내 주변 500m).
 // 글 목록을 바로 보여주지 않고, 먼저 건물 단위로 묶어 보여준 뒤 건물을 선택해야 그 건물의 글이 나온다.
-// fallbackPosts(App의 activePosts, 위치 무관)는 우리 동네에 글이 하나도 없을 때 대체 콘텐츠로 쓴다.
-function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost, fallbackPosts = [], userLocation, now }) {
-  const [selectedBuilding, setSelectedBuilding] = useState(null)
+function CommunityPage({
+  posts = [],
+  userLocation = null,
+  isLocationTrusted = false,
+  locationStatus = 'loading',
+  communityTarget = null,
+  onResetTarget,
+  postsStatus = 'success',
+  postsError = null,
+  onRetry,
+  onWrite,
+  activeCategories,
+  onToggleCategory,
+  onEnableAllCategories,
+  onSelectPost,
+  fallbackPosts = [],
+  now,
+}) {
+  const [selectedBuildingId, setSelectedBuildingId] = useState(null)
 
-  const buildings = useMemo(() => groupPostsByBuilding(posts), [posts])
+  const center = communityTarget ?? userLocation
+  const scopedPosts = useMemo(
+    () => (center ? filterPostsWithinRadius(posts, center, COMMUNITY_RADIUS_METERS) : posts),
+    [posts, center],
+  )
+
+  const buildings = useMemo(() => groupPostsByBuilding(scopedPosts), [scopedPosts])
+  const selectedBuilding = buildings.find((building) => building.id === selectedBuildingId) ?? null
+
+  useEffect(() => {
+    setSelectedBuildingId(null)
+  }, [communityTarget?.lat, communityTarget?.lng])
+
+  useEffect(() => {
+    if (selectedBuildingId && !selectedBuilding) setSelectedBuildingId(null)
+  }, [selectedBuildingId, selectedBuilding])
+
+  const targetLabel = communityTarget?.name || communityTarget?.address || '선택한 위치'
+  const resolvedPostsError = typeof postsError === 'string' ? postsError : postsError?.message
+
+  if (communityTarget) {
+    return (
+      <div className="community-page">
+        <div className="community-location-header">
+          <div>
+            <h1 className="community-page-title">{targetLabel}</h1>
+            <p className="community-page-subtitle">선택한 위치 반경 500m 글이에요.</p>
+          </div>
+          {onResetTarget && (
+            <button type="button" className="community-reset-location" onClick={onResetTarget}>
+              내 주변으로
+            </button>
+          )}
+        </div>
+        <CommunityFeed
+          posts={scopedPosts}
+          activeCategories={activeCategories}
+          onToggleCategory={onToggleCategory}
+          onSelectPost={onSelectPost}
+          status={postsStatus}
+          errorMessage={resolvedPostsError}
+          onRetry={onRetry}
+          onWrite={onWrite && center ? () => onWrite(center.lat, center.lng) : undefined}
+          contextLabel={targetLabel}
+        />
+      </div>
+    )
+  }
 
   if (selectedBuilding) {
     return (
       <div className="community-page">
         <div className="menu-page-header">
-          <button type="button" className="menu-back-button" onClick={() => setSelectedBuilding(null)}>
+          <button type="button" className="menu-back-button" onClick={() => setSelectedBuildingId(null)}>
             ‹ 건물 목록
           </button>
         </div>
@@ -25,6 +88,11 @@ function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost
           activeCategories={activeCategories}
           onToggleCategory={onToggleCategory}
           onSelectPost={onSelectPost}
+          status={postsStatus}
+          errorMessage={resolvedPostsError}
+          onRetry={onRetry}
+          onWrite={onWrite ? () => onWrite(selectedBuilding.lat, selectedBuilding.lng) : undefined}
+          contextLabel="이 건물"
           fallbackPosts={fallbackPosts}
           userLocation={userLocation}
           now={now}
@@ -35,15 +103,43 @@ function CommunityPage({ posts, activeCategories, onToggleCategory, onSelectPost
 
   return (
     <div className="community-page">
-      <h1 className="community-page-title">커뮤니티</h1>
-      <p className="community-page-subtitle">내 주변 500m 이내 건물이에요. 눌러서 글을 봐요.</p>
-      {buildings.length === 0 ? (
+      <header className="page-heading community-page-heading">
+        <span className="page-eyebrow">반경 500m 동네 기록</span>
+        <h1 className="community-page-title">동네 커뮤니티</h1>
+        <p className="community-page-subtitle">
+          {isLocationTrusted
+            ? '가까운 건물을 선택해 지금 올라온 이야기를 확인해 보세요.'
+            : locationStatus === 'loading'
+              ? '현재 위치를 확인하고 있어요.'
+              : '위치를 확인하지 못해 서울시청 기준으로 보여드려요.'}
+        </p>
+      </header>
+      {postsStatus === 'error' || resolvedPostsError ? (
+        <div className="community-empty-state" role="alert">
+          <p>{resolvedPostsError || '게시글을 불러오지 못했어요.'}</p>
+          {onRetry && <button type="button" onClick={onRetry}>다시 시도</button>}
+        </div>
+      ) : postsStatus === 'loading' ? (
+        <p className="community-empty" role="status">건물 목록을 불러오는 중...</p>
+      ) : activeCategories?.size === 0 ? (
+        <div className="community-empty-state">
+          <p>모든 카테고리가 꺼져 있어 건물을 표시할 수 없어요.</p>
+          {onEnableAllCategories && (
+            <button type="button" onClick={onEnableAllCategories}>모든 카테고리 켜기</button>
+          )}
+        </div>
+      ) : buildings.length === 0 ? (
         <div className="community-empty-state">
           <p className="community-empty">이 동네엔 아직 글이 없어요. 첫 글을 남겨보는 건 어때요?</p>
-          <TrendingFallback posts={fallbackPosts} onSelectPost={onSelectPost} userLocation={userLocation} now={now} />
+          <TrendingFallback
+            posts={fallbackPosts}
+            onSelectPost={onSelectPost}
+            userLocation={userLocation}
+            now={now}
+          />
         </div>
       ) : (
-        <BuildingList buildings={buildings} onSelect={setSelectedBuilding} />
+        <BuildingList buildings={buildings} onSelect={(building) => setSelectedBuildingId(building.id)} />
       )}
     </div>
   )
