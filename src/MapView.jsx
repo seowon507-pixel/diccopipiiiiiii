@@ -10,9 +10,9 @@ import {
   CATEGORY_COLORS,
   DEFAULT_CATEGORY_COLOR,
   getFadeOpacity,
-  getMarkerIcon,
   getMarkerTier,
 } from './categories'
+import { Glyph, markerGlyphSvg, resolveGlyphName } from './iconGlyphs'
 import { clusterByScreenPosition, getClusterTier } from './mapClustering'
 import { reverseGeocodeDong } from './geocode'
 import { getDistanceMeters } from './geo'
@@ -53,7 +53,7 @@ const MAP_LOAD_TIMEOUT_MS = 10000
 
 // index.css :root의 --color-accent와 반드시 같은 값으로 유지할 것 — 카카오맵 SVG 마커는
 // base64 data URI라 DOM 밖이라서 CSS 변수를 못 읽기 때문에 여기 hex 리터럴을 원본으로 둔다.
-const ACCENT_COLOR = '#2e7d6b'
+const ACCENT_COLOR = '#0066ff'
 
 // 마커 3단계 크기 — 실시간 알림형(크게)/자유주제 커뮤니티(작게)/클러스터(숫자 원, 개수별로 더 크게).
 // 화면 픽셀 기준 지름(px). placeholder 모드(CSS)와 카카오 SVG 마커 양쪽이 이 값을 공유한다.
@@ -94,25 +94,31 @@ const MARKER_SHADOW_DEF = `<filter id="marker-shadow" x="-60%" y="-60%" width="2
 
 // 게시글 마커 — tier(large/small)로 크기를, glyph로 카테고리 아이콘(색약 대응)을 표시하고,
 // selected면 포인트 컬러 테두리로 강조한다(그림자는 항상 은은한 톤 유지).
-function createKakaoMarkerImage(kakao, { color, glyph, tier = 'small', selected = false }) {
+function createKakaoMarkerImage(kakao, { color, glyphName, tier = 'small', selected = false }) {
   const diameter = MARKER_DIAMETER[tier]
   const radius = diameter / 2 - 2
   const ringExtra = selected ? 4 : 0
   const size = diameter + ringExtra + 6
   const center = size / 2
-  const fontSize = MARKER_GLYPH_FONT_SIZE[tier]
 
   const ring = selected
     ? `<circle cx="${center}" cy="${center}" r="${radius + 3}" fill="none" stroke="${ACCENT_COLOR}" stroke-width="3"/>`
     : ''
-  const glyphText = glyph
-    ? `<text x="${center}" y="${center + fontSize * 0.35}" font-size="${fontSize}" text-anchor="middle">${glyph}</text>`
+  // 색약 대응 흰색 라인 글리프(이모지 대체). 마커 크기에 맞춰 지름/굵기를 조절한다.
+  const glyphMarkup = glyphName
+    ? markerGlyphSvg(glyphName, {
+        cx: center,
+        cy: center,
+        px: tier === 'large' ? 20 : 14,
+        stroke: '#fff',
+        strokeWidth: tier === 'large' ? 2 : 1.7,
+      })
     : ''
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">`
     + `<defs>${MARKER_SHADOW_DEF}</defs>`
     + `<g filter="url(#marker-shadow)"><circle cx="${center}" cy="${center}" r="${radius}" fill="${color}" stroke="#fff" stroke-width="2"/></g>`
-    + `${ring}${glyphText}</svg>`
+    + `${ring}${glyphMarkup}</svg>`
 
   return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(size, size))
 }
@@ -134,18 +140,18 @@ function createKakaoClusterMarkerImage(kakao, count) {
   return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(size, size))
 }
 
-// 아직 글이 없는 "빈 핀" 전용 마커 이미지(점선 원 + 📌).
+// 아직 글이 없는 "빈 핀" 전용 마커 이미지(점선 원 + 핀 글리프).
 function createKakaoPinMarkerImage(kakao) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36">`
     + `<circle cx="18" cy="18" r="14" fill="#ffffff" stroke="#999999" stroke-width="2" stroke-dasharray="4,3"/>`
-    + `<text x="18" y="24" font-size="16" text-anchor="middle">📌</text></svg>`
+    + `${markerGlyphSvg('pin', { cx: 18, cy: 18, px: 17, stroke: '#666666', strokeWidth: 1.8 })}</svg>`
   return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(36, 36))
 }
 
 // 실시간 내 위치를 나타내는 작은 점 마커(카카오맵 전용). post/pin 마커와 구분되는 채움원.
 function createKakaoMyLocationMarkerImage(kakao) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18">`
-    + `<circle cx="9" cy="9" r="7" fill="#2e7d6b" stroke="#fff" stroke-width="3"/></svg>`
+    + `<circle cx="9" cy="9" r="7" fill="#0066ff" stroke="#fff" stroke-width="3"/></svg>`
   return new kakao.maps.MarkerImage(svgToDataUrl(svg), new kakao.maps.Size(18, 18))
 }
 
@@ -154,8 +160,8 @@ function createKakaoMyLocationMarkerImage(kakao) {
 // 물방울(핀 드롭) 모양 — 뾰족한 끝이 실제 좌표를 가리킨다.
 function createKakaoSearchMarkerImage(kakao) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="52" height="68">`
-    + `<path d="M26 65 C26 65 8 41 8 26 A18 18 0 1 1 44 26 C44 41 26 65 26 65 Z" fill="#2e7d6b" stroke="#fff" stroke-width="3"/>`
-    + `<text x="26" y="32" font-size="20" text-anchor="middle">🏢</text></svg>`
+    + `<path d="M26 65 C26 65 8 41 8 26 A18 18 0 1 1 44 26 C44 41 26 65 26 65 Z" fill="#0066ff" stroke="#fff" stroke-width="3"/>`
+    + `${markerGlyphSvg('building', { cx: 26, cy: 25, px: 22, stroke: '#fff', strokeWidth: 2 })}</svg>`
   return new kakao.maps.MarkerImage(
     svgToDataUrl(svg),
     new kakao.maps.Size(52, 68),
@@ -349,9 +355,9 @@ function MapView({
           center: new kakao.maps.LatLng(userLocation.lat, userLocation.lng),
           radius: EXTERNAL_DISTANCE_METERS,
           strokeWeight: 1.5,
-          strokeColor: '#2e7d6b',
+          strokeColor: '#0066ff',
           strokeOpacity: 0.6,
-          fillColor: '#2e7d6b',
+          fillColor: '#0066ff',
           fillOpacity: 0.08,
         })
         myLocationCircleRef.current.setMap(map)
@@ -480,7 +486,7 @@ function MapView({
         map,
         image: createKakaoMarkerImage(kakao, {
           color: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
-          glyph: getMarkerIcon(post),
+          glyphName: resolveGlyphName(post),
           tier: getMarkerTier(post.category),
           selected: post.id === selectedPostId,
         }),
@@ -765,7 +771,12 @@ function MapView({
       {locationBanner}
       <div className="map-view">
         <div className="map-header">
-          {neighborhoodName && <span className="map-header-neighborhood">📍 {neighborhoodName}</span>}
+          {neighborhoodName && (
+            <span className="map-header-neighborhood">
+              <Glyph name="pin" size={14} strokeWidth={2} />
+              {neighborhoodName}
+            </span>
+          )}
           {mapStatus === 'ready' && (
             <PlaceSearch
               kakao={window.kakao}
@@ -789,7 +800,7 @@ function MapView({
               setSelectedPinId(null)
             }}
           >
-            📌
+            <Glyph name="pin" size={20} />
           </button>
           {KAKAO_MAP_KEY && (
             <button
@@ -799,7 +810,7 @@ function MapView({
               disabled={!userLocation}
               onClick={handleRecenterToMyLocation}
             >
-              🎯
+              <Glyph name="locate" size={20} />
             </button>
           )}
         </div>
@@ -878,7 +889,7 @@ function MapView({
                     onSelectPost(post.id)
                   }}
                 >
-                  {getMarkerIcon(post)}
+                  <Glyph name={resolveGlyphName(post)} size={getMarkerTier(post.category) === 'large' ? 18 : 14} color="#fff" strokeWidth={2} />
                 </button>
               )
             })}
@@ -899,7 +910,7 @@ function MapView({
                     setSelectedPinId(pin.id)
                   }}
                 >
-                  📌
+                  <Glyph name="pin" size={17} color="#666666" strokeWidth={1.8} />
                 </button>
               )
             })}
@@ -949,7 +960,7 @@ function MapView({
                 className="place-community-write-button"
                 onClick={() => onOpenCreateModal(searchedPlace.lat, searchedPlace.lng)}
               >
-                ✏️ 글쓰기
+                <Glyph name="pencil" size={16} strokeWidth={2} /> 글쓰기
               </button>
             </div>
             <CommunityFeed

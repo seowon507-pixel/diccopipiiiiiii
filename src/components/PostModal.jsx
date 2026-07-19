@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { REALTIME_CATEGORIES, FREE_CATEGORIES, CATEGORY_COLORS, PIN_ICONS } from '../categories'
+import { Glyph, PIN_GLYPH } from '../iconGlyphs'
 
 const TITLE_MAX_LENGTH = 40
 const CONTENT_MAX_LENGTH = 500
@@ -128,15 +129,15 @@ function PostModal({
         <div className="post-modal-icon-field">
           <p className="post-modal-category-group-label">핀 아이콘(선택)</p>
           <div className="post-modal-icons">
-            {PIN_ICONS.map(({ key, emoji }) => (
+            {PIN_ICONS.map(({ key }) => (
               <button
                 key={key}
                 type="button"
                 className={`post-modal-icon-chip${icon === key ? ' selected' : ''}`}
                 onClick={() => setIcon(icon === key ? null : key)}
-                aria-label={`아이콘 ${emoji}`}
+                aria-label={`아이콘 ${key}`}
               >
-                {emoji}
+                <Glyph name={PIN_GLYPH[key]} size={22} strokeWidth={1.9} />
               </button>
             ))}
           </div>

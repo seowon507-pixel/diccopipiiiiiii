@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, getMarkerIcon, getReactionCount } from '../categories'
+import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, getReactionCount } from '../categories'
+import { Glyph, resolveGlyphName } from '../iconGlyphs'
 
 // 홈(지도 탭) 상단에 뜨는 "이번 주 우리 동네 소식" 자동 큐레이션 카드. posts는 이미
 // usePosts.js의 getWeeklyDigestPosts로 선별된(최근 7일 + 반응 있는 글 중 인기순 상위 몇 개)
@@ -14,7 +15,10 @@ function WeeklyDigest({ posts, onSelectPost }) {
   return (
     <div className="weekly-digest">
       <div className="weekly-digest-header">
-        <span className="weekly-digest-title">📰 이번 주 우리 동네 소식</span>
+        <span className="weekly-digest-title">
+          <Glyph name="news" size={17} strokeWidth={1.8} />
+          이번 주 우리 동네 소식
+        </span>
         <button type="button" className="weekly-digest-close" aria-label="닫기" onClick={() => setDismissed(true)}>
           ×
         </button>
@@ -32,11 +36,13 @@ function WeeklyDigest({ posts, onSelectPost }) {
               className="weekly-digest-item-icon"
               style={{ backgroundColor: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR }}
             >
-              {getMarkerIcon(post)}
+              <Glyph name={resolveGlyphName(post)} size={17} color="#fff" strokeWidth={2} />
             </span>
             <span className="weekly-digest-item-text">
               <span className="weekly-digest-item-title">{post.title || post.content}</span>
-              <span className="weekly-digest-item-meta">👍 {getReactionCount(post)}</span>
+              <span className="weekly-digest-item-meta">
+                <Glyph name="heart" size={13} strokeWidth={2} /> {getReactionCount(post)}
+              </span>
             </span>
           </button>
         ))}

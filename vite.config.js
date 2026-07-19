@@ -25,7 +25,7 @@ export default defineConfig({
         short_name: '우리동네알림',
         description: '지도 기반 동네 커뮤니티 — 실시간 알림과 자유주제 글을 지도 위에서 나눠요.',
         lang: 'ko',
-        theme_color: '#2e7d6b',
+        theme_color: '#0066FF',
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',

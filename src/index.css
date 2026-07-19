@@ -19,15 +19,16 @@
   --color-gray-800: #222222;
   --color-gray-900: #1a1a1a;
 
-  /* 포인트 컬러 — 단 1개(청록), 앱 전역 핵심 액션에 일관되게 사용.
-     accent-tint은 WCAG 감사에서 accent 텍스트와의 대비가 4.45:1(미달)로 나와 아주 살짝
-     더 밝게 보정했다(#eef5f2 → #f2f7f5, 육안 차이 거의 없음). */
-  --color-accent: #2e7d6b;
-  --color-accent-tint: #f2f7f5;
-  --color-accent-muted: #9fb8b2;
-  --color-accent-ring: rgba(46, 125, 107, 0.6);
-  --color-accent-wash: rgba(46, 125, 107, 0.08);
-  --color-disabled-bg: #cfd8d5;
+  /* 포인트 컬러 — 단 1개(쨍한 파랑), 앱 전역 핵심 액션에 일관되게 사용.
+     finance_news 캡처의 톤(#0066FF)을 그대로 가져왔다.
+     (참고: #0066FF는 흰 배경 텍스트 대비 3.6:1이라 순수 접근성 기준으론 본문 텍스트엔 살짝 미달 —
+      톤 우선으로 그대로 두었고, 필요하면 텍스트용으로 #0047B3를 별도 지정하면 된다.) */
+  --color-accent: #0066ff;
+  --color-accent-tint: #eaf2ff;
+  --color-accent-muted: #99c0ff;
+  --color-accent-ring: rgba(0, 102, 255, 0.55);
+  --color-accent-wash: rgba(0, 102, 255, 0.08);
+  --color-disabled-bg: #c2d6ff;
 
   /* 카테고리 9색 — categories.js CATEGORY_COLORS와 반드시 같은 값으로 유지할 것.
      (카카오맵 SVG 마커는 data URI라 CSS 변수를 못 읽어서 JS 쪽은 hex 리터럴을 유지해야 함)
@@ -222,7 +223,10 @@ textarea {
 }
 
 .tab-bar-icon {
-  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
 }
 
 .tab-bar-label {
@@ -3309,4 +3313,35 @@ textarea {
   text-align: center;
   line-height: 1.45;
   margin: var(--space-3) 0 0;
+}
+
+/* ── 이모지 → 라인 글리프(SVG) 교체에 따른 정렬 보정 ──────────────────────────
+   원형 배경 아이콘(.post-card-icon/.quick-post-icon/.place-search-button 등)은 이미
+   flex 중앙정렬이라 SVG가 그대로 가운데에 온다. 아래는 텍스트 옆에 글리프가 붙는
+   경우의 세로 정렬/간격만 잡아준다. */
+.menu-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent); /* 메뉴 라인 아이콘은 포인트 컬러로 통일 */
+}
+
+.map-header-neighborhood,
+.weekly-digest-title,
+.weekly-digest-item-meta,
+.place-community-write-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 라인 글리프는 선(stroke) 기반이라 부모의 font 크기와 무관하게 svg 크기를 따른다.
+   인라인으로 놓일 때 baseline 튐을 막기 위해 block 처리. */
+.map-header-neighborhood svg,
+.weekly-digest-title svg,
+.weekly-digest-item-meta svg,
+.place-community-write-button svg,
+.menu-card-icon svg {
+  display: block;
+  flex-shrink: 0;
 }

@@ -1,4 +1,5 @@
-import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, categoryHasExpiry, getMarkerIcon, getFadeOpacity } from '../categories'
+import { CATEGORY_COLORS, DEFAULT_CATEGORY_COLOR, categoryHasExpiry, getFadeOpacity } from '../categories'
+import { Glyph, resolveGlyphName } from '../iconGlyphs'
 import { formatDistanceMeters } from '../geo'
 import { reportPost } from '../supabaseClient'
 import { getReporterSecret } from '../myPosts'
@@ -45,7 +46,7 @@ function PostCard({ post, onClick, distance = null, now }) {
       }}
     >
       <span className="post-card-icon" style={{ backgroundColor: color }}>
-        {getMarkerIcon(post)}
+        <Glyph name={resolveGlyphName(post)} size={18} color="#fff" strokeWidth={2} />
       </span>
 
       <div className="post-card-main">
