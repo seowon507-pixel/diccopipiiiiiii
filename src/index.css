@@ -937,6 +937,18 @@ textarea:focus-visible {
   color: var(--color-accent);
 }
 
+.account-signout-button {
+  width: 100%;
+  min-height: 48px;
+  border: 1.5px solid var(--color-gray-250);
+  border-radius: var(--radius-lg);
+  background: var(--color-white);
+  color: var(--color-gray-800);
+  font-size: 0.9rem;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
 .recovery-restore-error {
   font-size: 0.85rem;
   color: var(--color-danger);
@@ -3623,6 +3635,117 @@ textarea:focus-visible {
   text-align: center;
   line-height: 1.45;
   margin: var(--space-3) 0 0;
+}
+
+/* 이메일 인증 로그인 + 닉네임 설정 게이트 — 온보딩보다 먼저 뜬다(App.jsx). */
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: flex;
+  align-items: center;
+  background: var(--color-white);
+  padding: calc(var(--space-6) + env(safe-area-inset-top, 0px)) var(--space-5)
+    calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+}
+
+.auth-gate-body {
+  max-width: 380px;
+  width: 100%;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.auth-gate-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-2xl);
+  background: var(--color-accent-tint);
+  font-size: 2rem;
+  margin-bottom: var(--space-4);
+}
+
+.auth-gate-title {
+  font-size: 1.4rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-gray-900);
+  margin: 0 0 var(--space-2);
+}
+
+.auth-gate-desc {
+  font-size: 0.9rem;
+  color: var(--color-gray-400);
+  margin: 0 0 var(--space-6);
+}
+
+.auth-gate-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+.auth-gate-code-target {
+  font-size: 0.85rem;
+  color: var(--color-gray-400);
+  margin: 0;
+  text-align: center;
+}
+
+.auth-gate-input {
+  width: 100%;
+  min-height: 52px;
+  border: 1.5px solid var(--color-gray-250);
+  border-radius: var(--radius-xl);
+  padding: 0 var(--space-4);
+  font-size: 1rem;
+  text-align: center;
+}
+
+.auth-gate-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.auth-gate-submit {
+  width: 100%;
+  min-height: 52px;
+  border: none;
+  border-radius: var(--radius-xl);
+  background: var(--color-accent);
+  color: var(--color-white);
+  font-size: 1.02rem;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.auth-gate-submit:disabled {
+  background: var(--color-accent-muted);
+  cursor: not-allowed;
+}
+
+.auth-gate-submit:active {
+  opacity: 0.9;
+}
+
+.auth-gate-link {
+  border: none;
+  background: none;
+  padding: var(--space-2);
+  color: var(--color-gray-400);
+  font-size: 0.85rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.auth-gate-error {
+  font-size: 0.82rem;
+  color: var(--color-danger);
+  margin: 0;
+  text-align: center;
 }
 
 /* --------------------------------------------------------------------------

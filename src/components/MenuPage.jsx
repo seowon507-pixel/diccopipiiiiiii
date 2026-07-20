@@ -23,6 +23,8 @@ function MenuPage({
   onUiThemeChange,
   userLocation,
   now,
+  nickname,
+  onSignOut,
 }) {
   const [view, setView] = useState('home')
   const [query, setQuery] = useState('')
@@ -198,6 +200,16 @@ function MenuPage({
           <section className="menu-section" aria-labelledby="menu-manage-title">
             <h2 id="menu-manage-title" className="menu-section-title">내 정보와 안전</h2>
             <div className="menu-card-list">
+              <button type="button" className="menu-card" onClick={() => setView('account')}>
+                <span className="menu-card-icon"><AppIcon name="user" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">내 계정</span>
+                  <span className="menu-card-desc">
+                    {nickname ? `${nickname}님으로 로그인 중` : '로그인 정보'}
+                  </span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
               <button type="button" className="menu-card" onClick={() => setView('notifications')}>
                 <span className="menu-card-icon menu-card-icon--notification"><AppIcon name="bell" size={22} /></span>
                 <span className="menu-card-text">
@@ -238,6 +250,22 @@ function MenuPage({
               </button>
             </div>
           </section>
+        </>
+      )}
+
+      {view === 'account' && (
+        <>
+          <div className="menu-page-header">
+            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
+            <h1 className="menu-page-title">내 계정</h1>
+          </div>
+          <section className="recovery-section">
+            <h2 className="recovery-section-title">닉네임</h2>
+            <p className="recovery-section-desc">{nickname}</p>
+          </section>
+          <button type="button" className="account-signout-button" onClick={onSignOut}>
+            로그아웃
+          </button>
         </>
       )}
 

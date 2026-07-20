@@ -90,6 +90,12 @@ const ICON_PATHS = {
       <path d="m15 15 5 5" />
     </>
   ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="3.6" />
+      <path d="M5 20v-1.2A5 5 0 0 1 10 13.8h4a5 5 0 0 1 5 5V20" />
+    </>
+  ),
 }
 
 function AppIcon({ name, size = 24, className = '' }) {
