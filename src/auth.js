@@ -92,16 +92,39 @@ export function isValidUsernameFormat(value) {
   return USERNAME_PATTERN.test(value.trim())
 }
 
-// 로그인 직후에는 새로 발급된 access token이 아직 이 탭의 요청에 완전히 반영되기 전에
-// 요청이 나가 401을 한 번 맞는 경우가 실제로 있었다(다른 탭과의 refresh token 경쟁 등).
-// 그 순간의 401 하나 때문에 "아이디 중복확인이 안 된다"처럼 보이는 걸 막기 위해, 아이디
-// 관련 호출 3개는 실패 시 세션을 한 번 강제로 새로고침한 뒤 딱 한 번만 재시도한다.
+function isRetryableAuthError(error) {
+  const code = String(error?.code ?? '').toUpperCase()
+  const message = String(error?.message ?? '').toLowerCase()
+  return Number(error?.status) === 401
+    || code === 'PGRST301'
+    || code === 'PGRST302'
+    || message.includes('authentication required')
+    || message.includes('invalid claim: missing sub')
+    || (message.includes('jwt') && (message.includes('expired') || message.includes('invalid')))
+}
+
+function expiredSessionError(cause) {
+  const error = new Error('로그인 세션이 만료되었습니다.')
+  error.code = 'AUTH_SESSION_EXPIRED'
+  error.cause = cause
+  return error
+}
+
+// 로그인 직후에는 새 access token이 이 탭의 요청에 반영되기 전에 RPC가 인증 오류를
+// 반환할 수 있다. 인증 오류에만 세션을 한 번 새로고침하고, 권한·중복·검증·네트워크
+// 오류는 원래 오류를 그대로 전달한다. refreshSession은 실패를 throw하지 않고 error 필드로
+// 반환하므로 그 값과 실제 session 존재 여부를 반드시 확인한다.
 async function withSessionRefreshRetry(fn) {
   try {
     return await fn()
-  } catch (err) {
-    console.warn('[auth] 요청 실패, 세션을 새로고침하고 한 번만 재시도합니다', err)
-    await supabase.auth.refreshSession()
+  } catch (error) {
+    if (!isRetryableAuthError(error)) throw error
+
+    console.warn('[auth] 인증 세션을 새로고침하고 요청을 한 번만 재시도합니다')
+    const { data, error: refreshError } = await supabase.auth.refreshSession()
+    if (refreshError || !data?.session?.access_token) {
+      throw expiredSessionError(refreshError ?? error)
+    }
     return fn()
   }
 }

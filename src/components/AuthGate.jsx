@@ -11,6 +11,32 @@ import {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 6
 
+function usernameSaveErrorMessage(error) {
+  const code = String(error?.code ?? '').toUpperCase()
+  const message = String(error?.message ?? '').toLowerCase()
+
+  if (
+    code === '23505'
+    || message.includes('taken')
+    || message.includes('duplicate key')
+    || message.includes('unique constraint')
+    || message.includes('already in use')
+  ) {
+    return '이미 사용 중인 아이디예요. 다른 아이디를 입력해주세요.'
+  }
+  if (
+    code === 'AUTH_SESSION_EXPIRED'
+    || message.includes('authentication required')
+    || message.includes('invalid claim: missing sub')
+  ) {
+    return '로그인 세션이 만료됐어요. 아래에서 로그아웃한 뒤 다시 로그인해주세요.'
+  }
+  if (code === 'PGRST202' || message.includes('schema cache')) {
+    return 'Supabase 로그인 DB 설정이 아직 적용되지 않았어요. 프로젝트 관리자에게 확인해주세요.'
+  }
+  return '아이디를 저장하지 못했어요. 잠시 후 다시 시도해주세요.'
+}
+
 function handleTabKeyDown(event, values, currentValue, onSelect) {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
   event.preventDefault()
@@ -128,9 +154,7 @@ function AuthGate({ session, statusError = null, onUsernameSaved }) {
       onUsernameSaved?.(saved)
     } catch (err) {
       console.error('[AuthGate] 아이디 저장 실패', err)
-      setError(err?.message?.includes('taken')
-        ? '이미 사용 중인 아이디예요. 다른 아이디를 입력해주세요.'
-        : '아이디를 저장하지 못했어요. 다시 시도해주세요.')
+      setError(usernameSaveErrorMessage(err))
     } finally {
       setSubmitting(false)
     }

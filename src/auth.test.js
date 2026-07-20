@@ -8,6 +8,7 @@ const { authMock, fromMock, rpcMock, unsubscribeMock } = vi.hoisted(() => ({
     signInWithPassword: vi.fn(),
     signInWithOtp: vi.fn(),
     signOut: vi.fn(),
+    refreshSession: vi.fn(),
   },
   fromMock: vi.fn(),
   rpcMock: vi.fn(),
@@ -19,7 +20,7 @@ vi.mock('./supabaseClient', () => ({
   backendConfigurationError: null,
 }))
 
-import { signUpWithPassword, subscribeToAuthState } from './auth'
+import { saveUsername, signUpWithPassword, subscribeToAuthState } from './auth'
 
 describe('auth session bootstrap', () => {
   beforeEach(() => {
@@ -73,5 +74,41 @@ describe('auth session bootstrap', () => {
       password: 'password',
       options: { emailRedirectTo: window.location.origin },
     })
+  })
+
+  it('아이디 저장의 인증 오류만 세션 새로고침 후 한 번 재시도한다', async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'authentication required' } })
+      .mockResolvedValueOnce({ data: { username: 'member_01' }, error: null })
+    authMock.refreshSession.mockResolvedValue({
+      data: { session: { access_token: 'refreshed-access-token' } },
+      error: null,
+    })
+
+    await expect(saveUsername('member_01')).resolves.toBe('member_01')
+    expect(authMock.refreshSession).toHaveBeenCalledOnce()
+    expect(rpcMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('중복 아이디 오류는 세션 문제로 오인해 재시도하지 않는다', async () => {
+    const duplicate = { code: '23505', message: 'duplicate key value violates unique constraint' }
+    rpcMock.mockResolvedValue({ data: null, error: duplicate })
+
+    await expect(saveUsername('member_01')).rejects.toBe(duplicate)
+    expect(authMock.refreshSession).not.toHaveBeenCalled()
+    expect(rpcMock).toHaveBeenCalledOnce()
+  })
+
+  it('세션 새로고침 실패를 명확한 만료 오류로 변환한다', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'authentication required' } })
+    authMock.refreshSession.mockResolvedValue({
+      data: { session: null },
+      error: new Error('refresh token invalid'),
+    })
+
+    await expect(saveUsername('member_01')).rejects.toMatchObject({
+      code: 'AUTH_SESSION_EXPIRED',
+    })
+    expect(rpcMock).toHaveBeenCalledOnce()
   })
 })

@@ -7,6 +7,21 @@
 - 마이그레이션: `supabase/migrations/20260720024147_v6_auth_moderation_admin_security.sql`
 - 목적: 로그인 프로필 계약을 코드화하고, 로그인 계정 기반 신고 중복 방지와 관리자 검토·조치·감사 기록을 추가합니다.
 
+## 현재 확인된 아이디 저장 오류
+
+2026-07-20 원격 프로젝트 점검에서 기존 `set_username(text)` 함수는 응답했지만, v6 확인용 `current_app_role_v1()` 호출은 `PGRST202`(함수 없음)를 반환했습니다. 이는 이 문서의 v6 마이그레이션이 원격 프로젝트에 아직 적용되지 않았다는 뜻입니다. 로그인 직후 `아이디를 저장하지 못했어요`가 표시되면 프런트 키를 바꾸거나 `service_role` 키를 전달하지 말고, 먼저 아래 마이그레이션 전체를 적용하세요.
+
+적용 후 아래 확인 쿼리가 모두 `true`여야 합니다.
+
+```sql
+select
+  to_regclass('public.profiles') is not null as profiles_ready,
+  to_regprocedure('public.set_username(text)') is not null as set_username_ready,
+  to_regprocedure('public.current_app_role_v1()') is not null as role_rpc_ready;
+```
+
+그다음 해당 사용자는 앱에서 `로그아웃하고 다시 로그인하기`를 눌러 새 세션으로 아이디 저장을 다시 시도해야 합니다.
+
 ## 적용 전 확인
 
 1. Supabase Dashboard에서 데이터베이스 백업 또는 PITR 가능 여부를 확인합니다.
