@@ -31,32 +31,4 @@ describe('MenuPage', () => {
 
     expect(onOpenQuickPost).toHaveBeenCalledTimes(1)
   })
-
-  it('서로 다른 UI 시안 5종을 보여주고 선택을 상위 화면에 전달한다', async () => {
-    const onUiThemeChange = vi.fn()
-
-    render(
-      <MenuPage
-        posts={[]}
-        activeCategories={new Set()}
-        onToggleCategory={() => {}}
-        onSelectPost={() => {}}
-        onOpenCreateModal={() => {}}
-        onOpenQuickPost={() => {}}
-        uiTheme="alley"
-        onUiThemeChange={onUiThemeChange}
-        userLocation={{ lat: 37.56, lng: 126.92 }}
-      />,
-    )
-
-    expect(screen.getByLabelText('UI 시안 선택').querySelectorAll('button')).toHaveLength(5)
-
-    await userEvent.click(
-      screen.getByRole('button', {
-        name: /03.*Civic Grid.*정밀한 공공정보 그리드/,
-      }),
-    )
-
-    expect(onUiThemeChange).toHaveBeenCalledWith('civic')
-  })
 })

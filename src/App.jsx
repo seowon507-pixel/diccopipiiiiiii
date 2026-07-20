@@ -38,7 +38,7 @@ import { maybeFuzzLocation } from './geoPrivacy'
 import { getDistanceMeters } from './geo'
 import { QUICK_POST_MESSAGES } from './categories'
 import { getOrCreateDeviceSecret } from './notifications'
-import { getSavedUiTheme, saveUiTheme } from './uiThemes'
+import { UI_THEME } from './uiThemes'
 
 function createRequestId() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID()
@@ -54,15 +54,13 @@ function createRequestId() {
 // 커뮤니티 등)에서 "글쓰기"를 눌러도 같은 흐름을 탄다 — 각 탭에서 업로드/등록 로직을 중복 구현하지 않는다.
 function App() {
   const [activeTab, setActiveTab] = useState('map')
-  const [uiTheme, setUiTheme] = useState(getSavedUiTheme)
 
   useEffect(() => {
-    document.documentElement.dataset.uiTheme = uiTheme
-    saveUiTheme(uiTheme)
+    document.documentElement.dataset.uiTheme = UI_THEME
     return () => {
       delete document.documentElement.dataset.uiTheme
     }
-  }, [uiTheme])
+  }, [])
   // 로그인 게이트 — undefined는 "아직 세션 확인 전"을 뜻한다. Supabase가 설정 안 된
   // 개발/데모 환경(backendConfigurationError)에서는 로그인 게이트 자체가 의미 없으니
   // 곧바로 통과시킨다(다른 RPC들이 이미 이 환경에서 legacy/dummy로 graceful하게 빠지는 것과 같은 원칙).
@@ -469,7 +467,7 @@ function App() {
   }
 
   return (
-    <div className="app" data-ui-theme={uiTheme}>
+    <div className="app" data-ui-theme={UI_THEME}>
       <div className="app-content">
         {postsStatus === 'error' && (
           <div className="app-status-banner" role="alert">
@@ -556,9 +554,6 @@ function App() {
             now={now}
             onOpenQuickPost={() => setQuickPostOpen(true)}
             quickPostDisabled={!isLocationTrusted}
-            active={activeTab === 'menu'}
-            uiTheme={uiTheme}
-            onUiThemeChange={setUiTheme}
             username={username}
             onSignOut={signOut}
           />
@@ -589,7 +584,7 @@ function App() {
         {toast && <Toast key={toast.key} message={toast.message} onDismiss={() => setToast(null)} />}
       </div>
 
-      <TabBar activeTab={activeTab} onChange={handleTabChange} uiTheme={uiTheme} />
+      <TabBar activeTab={activeTab} onChange={handleTabChange} />
 
       {selectedPost && (
         <PostDetail
