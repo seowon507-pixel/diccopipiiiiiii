@@ -3,7 +3,6 @@ import {
   signUpWithPassword,
   signInWithPassword,
   sendLoginLink,
-  checkUsernameAvailable,
   saveUsername,
   isValidUsernameFormat,
   signOut,
@@ -27,7 +26,6 @@ function AuthGate({ session, onUsernameSaved }) {
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [username, setUsernameValue] = useState('')
-  const [usernameCheck, setUsernameCheck] = useState(null) // null | 'checking' | 'available' | 'taken'
   const [signedUp, setSignedUp] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
@@ -100,35 +98,21 @@ function AuthGate({ session, onUsernameSaved }) {
     }
   }
 
-  async function handleCheckUsername() {
-    const trimmed = username.trim()
-    if (!isValidUsernameFormat(trimmed) || usernameCheck === 'checking') return
-
-    setUsernameCheck('checking')
-    resetFeedback()
-    try {
-      const available = await checkUsernameAvailable(trimmed)
-      setUsernameCheck(available ? 'available' : 'taken')
-    } catch (err) {
-      console.error('[AuthGate] 아이디 중복확인 실패', err)
-      setUsernameCheck(null)
-      setError('중복확인에 실패했어요. 다시 시도해주세요.')
-    }
-  }
-
   async function handleSaveUsername(event) {
     event.preventDefault()
-    if (usernameCheck !== 'available' || submitting) return
+    const trimmed = username.trim()
+    if (!isValidUsernameFormat(trimmed) || submitting) return
 
     setSubmitting(true)
     resetFeedback()
     try {
-      const saved = await saveUsername(username)
+      const saved = await saveUsername(trimmed)
       onUsernameSaved?.(saved)
     } catch (err) {
       console.error('[AuthGate] 아이디 저장 실패', err)
-      setError('방금 다른 사람이 먼저 가져갔을 수 있어요. 다시 중복확인해주세요.')
-      setUsernameCheck(null)
+      setError(err?.message?.includes('taken')
+        ? '이미 사용 중인 아이디예요. 다른 아이디를 입력해주세요.'
+        : '아이디를 저장하지 못했어요. 다시 시도해주세요.')
     } finally {
       setSubmitting(false)
     }
@@ -143,34 +127,23 @@ function AuthGate({ session, onUsernameSaved }) {
           <p className="auth-gate-desc">동네 이웃들에게 보여질 이름이에요. 영문/숫자/밑줄 2~20자.</p>
 
           <form className="auth-gate-form" onSubmit={handleSaveUsername}>
-            <div className="auth-gate-username-row">
-              <input
-                className="auth-gate-input"
-                value={username}
-                maxLength={20}
-                autoComplete="off"
-                placeholder="아이디"
-                onChange={(event) => {
-                  setUsernameValue(event.target.value)
-                  setUsernameCheck(null)
-                }}
-              />
-              <button
-                type="button"
-                className="auth-gate-check-button"
-                disabled={!isValidUsernameFormat(username.trim()) || usernameCheck === 'checking'}
-                onClick={handleCheckUsername}
-              >
-                {usernameCheck === 'checking' ? '확인 중...' : '중복확인'}
-              </button>
-            </div>
+            <input
+              className="auth-gate-input"
+              value={username}
+              maxLength={20}
+              autoComplete="off"
+              placeholder="아이디"
+              onChange={(event) => setUsernameValue(event.target.value)}
+            />
             {username.trim().length > 0 && !isValidUsernameFormat(username.trim()) && (
               <p className="auth-gate-error" role="alert">영문, 숫자, 밑줄(_)만 사용해서 2~20자로 입력해주세요.</p>
             )}
-            {usernameCheck === 'available' && <p className="auth-gate-success">사용할 수 있는 아이디예요.</p>}
-            {usernameCheck === 'taken' && <p className="auth-gate-error" role="alert">이미 사용 중인 아이디예요.</p>}
             {error && <p className="auth-gate-error" role="alert">{error}</p>}
-            <button type="submit" className="auth-gate-submit" disabled={usernameCheck !== 'available' || submitting}>
+            <button
+              type="submit"
+              className="auth-gate-submit"
+              disabled={!isValidUsernameFormat(username.trim()) || submitting}
+            >
               {submitting ? '저장 중...' : '시작하기'}
             </button>
             <button type="button" className="auth-gate-link" onClick={() => signOut()}>

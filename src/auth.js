@@ -97,20 +97,9 @@ export async function fetchMyUsername(userId) {
   })
 }
 
-// 아이디 중복확인. is_username_available RPC가 형식 검증까지 서버에서 한 번 더 하므로
-// 클라이언트 정규식과 서버 판정이 항상 같은 결론을 낸다(중복 검증 로직을 두 곳에 따로 두지 않음).
-export async function checkUsernameAvailable(username) {
-  if (!supabase) throw backendConfigurationError
-
-  return withSessionRefreshRetry(async () => {
-    const { data, error } = await supabase.rpc('is_username_available', { p_username: username.trim() })
-    if (error) throw error
-    return Boolean(data)
-  })
-}
-
-// 중복확인을 통과한 아이디를 실제로 저장한다. 동시에 같은 아이디를 노리는 경쟁 상황은
-// set_username RPC 내부의 유니크 인덱스가 최종적으로 막아준다(그 경우 에러가 던져진다).
+// 아이디를 저장한다 — 미리 중복확인을 받지 않고 바로 시도하고, 이미 있으면 그때 에러로
+// 알려준다(한 단계 줄임). 동시에 같은 아이디를 노리는 경쟁 상황은 set_username RPC 내부의
+// 유니크 인덱스가 최종적으로 막아준다.
 export async function saveUsername(username) {
   if (!supabase) throw backendConfigurationError
 
