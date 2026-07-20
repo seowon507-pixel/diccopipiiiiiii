@@ -43,22 +43,20 @@ export async function signInWithPassword(email, password) {
   return data.session
 }
 
-// 기존 계정 로그인 방법 2 — 인증코드. shouldCreateUser를 껐다 — 신규 가입은 이메일+비밀번호
-// 경로로만 받고, 인증코드 로그인은 이미 가입된 계정의 재로그인 전용이다(가입 확인 이메일 템플릿과
-// 인증코드 이메일 템플릿이 뒤섞이지 않게 하기 위함).
-export async function sendLoginCode(email) {
+// 기존 계정 로그인 방법 2 — 이메일 로그인 링크(매직링크). shouldCreateUser를 껐다 — 신규
+// 가입은 이메일+비밀번호 경로로만 받고, 이 방법은 이미 가입된 계정의 재로그인 전용이다.
+// 6자리 코드가 아니라 링크인 이유: Supabase의 Magic Link 이메일 템플릿은 기본 상태로 이미
+// 클릭용 링크(ConfirmationURL)를 보내지만, 코드(Token)는 대시보드에서 템플릿을 직접 수정해야만
+// 나온다(이 프로젝트는 아직 수정 안 됨). 기본 템플릿 그대로 동작하는 링크 방식을 쓰면 대시보드
+// 설정 없이도 바로 동작한다. emailRedirectTo를 현재 origin으로 명시해 로컬/미리보기/배포
+// 도메인 어디서 요청했든 그 자리로 정확히 돌아오게 한다(Supabase 대시보드의 Redirect URLs
+// 허용 목록에 해당 도메인이 있어야 한다 — 없으면 기본 Site URL로 대체됨).
+export async function sendLoginLink(email) {
   const { error } = await requireAuth().signInWithOtp({
     email,
-    options: { shouldCreateUser: false },
+    options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
   })
   if (error) throw error
-}
-
-// 인증코드를 확인해 로그인을 완료한다. 성공하면 onAuthStateChange가 새 세션을 알려준다.
-export async function verifyLoginCode(email, code) {
-  const { data, error } = await requireAuth().verifyOtp({ email, token: code, type: 'email' })
-  if (error) throw error
-  return data.session
 }
 
 export async function signOut() {

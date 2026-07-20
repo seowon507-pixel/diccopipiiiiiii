@@ -2,8 +2,7 @@ import { useState } from 'react'
 import {
   signUpWithPassword,
   signInWithPassword,
-  sendLoginCode,
-  verifyLoginCode,
+  sendLoginLink,
   checkUsernameAvailable,
   saveUsername,
   isValidUsernameFormat,
@@ -14,18 +13,18 @@ const MIN_PASSWORD_LENGTH = 6
 
 // 앱 시작 시 온보딩보다 먼저 뜨는 로그인 게이트.
 // - session이 없으면: 회원가입(이메일+비밀번호, 이메일 인증 필요)과 로그인(비밀번호 또는
-//   인증코드, 둘 다 이미 가입된 계정 전용) 중 고르는 화면을 보여준다.
+//   이메일 링크, 둘 다 이미 가입된 계정 전용) 중 고르는 화면을 보여준다.
 // - session은 있지만 아이디(profiles.username)가 없으면: 아이디 설정+중복확인 화면을 보여준다.
 // 로그인/아이디 저장 성공 이후의 상태 갱신은 App.jsx가 처리하므로(세션 구독, 프로필 재조회),
-// 여기서는 그 결과로 다시 그려지는 것만 기다리면 된다.
+// 여기서는 그 결과로 다시 그려지는 것만 기다리면 된다(이메일 링크를 눌러 새 탭이 열리면 그
+// 탭에서 세션이 생기고, 원래 탭은 onAuthStateChange로 뒤늦게 알게 된다).
 function AuthGate({ session, onUsernameSaved }) {
   const [tab, setTab] = useState('signup') // 'signup' | 'login'
-  const [loginMethod, setLoginMethod] = useState('password') // 'password' | 'code'
-  const [codePhase, setCodePhase] = useState('request') // 'request' | 'verify'
+  const [loginMethod, setLoginMethod] = useState('password') // 'password' | 'link'
+  const [linkSent, setLinkSent] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
-  const [code, setCode] = useState('')
   const [username, setUsernameValue] = useState('')
   const [usernameCheck, setUsernameCheck] = useState(null) // null | 'checking' | 'available' | 'taken'
   const [signedUp, setSignedUp] = useState(false)
@@ -79,7 +78,7 @@ function AuthGate({ session, onUsernameSaved }) {
     }
   }
 
-  async function handleSendCode(event) {
+  async function handleSendLink(event) {
     event.preventDefault()
     const trimmedEmail = email.trim()
     if (!EMAIL_PATTERN.test(trimmedEmail) || submitting) return
@@ -87,31 +86,14 @@ function AuthGate({ session, onUsernameSaved }) {
     setSubmitting(true)
     resetFeedback()
     try {
-      await sendLoginCode(trimmedEmail)
+      await sendLoginLink(trimmedEmail)
       setEmail(trimmedEmail)
-      setCodePhase('verify')
+      setLinkSent(true)
     } catch (err) {
-      console.error('[AuthGate] 인증코드 발송 실패', err)
+      console.error('[AuthGate] 로그인 링크 발송 실패', err)
       setError(err?.message?.includes('Signups not allowed')
         ? '아직 가입되지 않은 이메일이에요. 회원가입 탭을 이용해주세요.'
-        : '인증코드를 보내지 못했어요. 다시 시도해주세요.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  async function handleVerifyCode(event) {
-    event.preventDefault()
-    const trimmed = code.trim()
-    if (!trimmed || submitting) return
-
-    setSubmitting(true)
-    resetFeedback()
-    try {
-      await verifyLoginCode(email, trimmed)
-    } catch (err) {
-      console.error('[AuthGate] 인증코드 확인 실패', err)
-      setError('인증코드가 올바르지 않아요. 다시 확인해주세요.')
+        : '로그인 링크를 보내지 못했어요. 다시 시도해주세요.')
     } finally {
       setSubmitting(false)
     }
@@ -283,11 +265,11 @@ function AuthGate({ session, onUsernameSaved }) {
               <button
                 type="button"
                 role="tab"
-                aria-selected={loginMethod === 'code'}
+                aria-selected={loginMethod === 'link'}
                 className="auth-gate-subtab"
-                onClick={() => { setLoginMethod('code'); setCodePhase('request'); resetFeedback() }}
+                onClick={() => { setLoginMethod('link'); setLinkSent(false); resetFeedback() }}
               >
-                인증코드
+                이메일 링크
               </button>
             </div>
 
@@ -320,8 +302,23 @@ function AuthGate({ session, onUsernameSaved }) {
               </form>
             )}
 
-            {loginMethod === 'code' && codePhase === 'request' && (
-              <form className="auth-gate-form" onSubmit={handleSendCode}>
+            {loginMethod === 'link' && linkSent && (
+              <div className="auth-gate-form">
+                <p className="auth-gate-code-target">
+                  <strong>{email}</strong>로 로그인 링크를 보냈어요. 메일의 링크를 누르면 로그인이 끝나요.
+                </p>
+                <button
+                  type="button"
+                  className="auth-gate-link"
+                  onClick={() => { setLinkSent(false); resetFeedback() }}
+                >
+                  다른 이메일 사용하기
+                </button>
+              </div>
+            )}
+
+            {loginMethod === 'link' && !linkSent && (
+              <form className="auth-gate-form" onSubmit={handleSendLink}>
                 <input
                   className="auth-gate-input"
                   type="email"
@@ -336,32 +333,7 @@ function AuthGate({ session, onUsernameSaved }) {
                   className="auth-gate-submit"
                   disabled={submitting || !EMAIL_PATTERN.test(email.trim())}
                 >
-                  {submitting ? '전송 중...' : '인증코드 받기'}
-                </button>
-              </form>
-            )}
-
-            {loginMethod === 'code' && codePhase === 'verify' && (
-              <form className="auth-gate-form" onSubmit={handleVerifyCode}>
-                <p className="auth-gate-code-target">{email}로 인증코드를 보냈어요.</p>
-                <input
-                  className="auth-gate-input"
-                  value={code}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="인증코드 6자리"
-                  onChange={(event) => setCode(event.target.value)}
-                />
-                {error && <p className="auth-gate-error" role="alert">{error}</p>}
-                <button type="submit" className="auth-gate-submit" disabled={submitting || !code.trim()}>
-                  {submitting ? '확인 중...' : '로그인'}
-                </button>
-                <button
-                  type="button"
-                  className="auth-gate-link"
-                  onClick={() => { setCodePhase('request'); setCode(''); resetFeedback() }}
-                >
-                  다른 이메일 사용하기
+                  {submitting ? '전송 중...' : '로그인 링크 받기'}
                 </button>
               </form>
             )}
