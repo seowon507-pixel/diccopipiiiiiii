@@ -6,6 +6,7 @@ import {
   checkUsernameAvailable,
   saveUsername,
   isValidUsernameFormat,
+  signOut,
 } from '../auth'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -171,6 +172,9 @@ function AuthGate({ session, onUsernameSaved }) {
             {error && <p className="auth-gate-error" role="alert">{error}</p>}
             <button type="submit" className="auth-gate-submit" disabled={usernameCheck !== 'available' || submitting}>
               {submitting ? '저장 중...' : '시작하기'}
+            </button>
+            <button type="button" className="auth-gate-link" onClick={() => signOut()}>
+              로그아웃하고 다시 로그인하기
             </button>
           </form>
         </div>
