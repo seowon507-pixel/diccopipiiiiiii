@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
-import RecoveryCode from './RecoveryCode.jsx'
 import ModerationPage from './ModerationPage.jsx'
 import AppIcon from './AppIcon.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
@@ -153,14 +152,6 @@ function MenuPage({
                 </span>
                 <AppIcon name="chevron" size={18} className="menu-card-arrow" />
               </button>
-              <button type="button" className="menu-card" onClick={() => setView('recovery')}>
-                <span className="menu-card-icon menu-card-icon--recovery"><AppIcon name="key" size={22} /></span>
-                <span className="menu-card-text">
-                  <span className="menu-card-label">복구 코드</span>
-                  <span className="menu-card-desc">기기를 바꿔도 내 글과 핀을 이어서 관리해요</span>
-                </span>
-                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
-              </button>
               {canModerate(appRole) && (
                 <button type="button" className="menu-card menu-card--moderation" onClick={() => setView('moderation')}>
                   <span className="menu-card-icon menu-card-icon--moderation"><AppIcon name="shield" size={22} /></span>
@@ -224,16 +215,6 @@ function MenuPage({
             <h1 className="menu-page-title">알림 설정</h1>
           </div>
           <NotificationSettings userLocation={userLocation} />
-        </>
-      )}
-
-      {view === 'recovery' && (
-        <>
-          <div className="menu-page-header">
-            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
-            <h1 className="menu-page-title">복구 코드</h1>
-          </div>
-          <RecoveryCode />
         </>
       )}
 
