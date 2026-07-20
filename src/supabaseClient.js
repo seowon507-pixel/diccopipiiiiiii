@@ -497,17 +497,13 @@ export function subscribeToComments(postId, options = {}, legacyStatus) {
   return activateChannel(channel, onStatus)
 }
 
-// 게시글/댓글 신고. 같은 브라우저(reporterSecret)가 같은 대상을 여러 번 눌러도 서버에서
-// 1회만 집계되고(post_reports/comment_reports의 reporter hash unique 제약), 누적 5회부터는 RPC가
-// posts.hidden/comments.hidden을 자동으로 true로 바꿔 즉시 노출을 중단시킨다.
+// 게시글/댓글 신고. v3는 로그인한 auth.uid()를 서버에서 직접 사용해 한 계정의 중복 신고를 막는다.
+// 아직 관리자 마이그레이션을 적용하지 않은 개발 DB만 v2의 browser reporter secret으로 후퇴한다.
 export async function reportPost(postId, reporterSecret) {
   return withLegacyFallback(
     'reportPost',
+    () => rpc('report_post_v3', { p_post_id: postId }),
     () => rpc('report_post_v2', {
-      p_post_id: postId,
-      p_reporter_secret: reporterSecret,
-    }),
-    () => rpc('report_post', {
       p_post_id: postId,
       p_reporter_secret: reporterSecret,
     }),
@@ -517,11 +513,8 @@ export async function reportPost(postId, reporterSecret) {
 export async function reportComment(commentId, reporterSecret) {
   return withLegacyFallback(
     'reportComment',
+    () => rpc('report_comment_v3', { p_comment_id: commentId }),
     () => rpc('report_comment_v2', {
-      p_comment_id: commentId,
-      p_reporter_secret: reporterSecret,
-    }),
-    () => rpc('report_comment', {
       p_comment_id: commentId,
       p_reporter_secret: reporterSecret,
     }),

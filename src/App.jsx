@@ -13,6 +13,7 @@ import AuthGate from './components/AuthGate.jsx'
 import AppIcon from './components/AppIcon.jsx'
 import { hasSeenOnboarding, markOnboardingSeen } from './onboarding'
 import { subscribeToAuthState, fetchMyUsername, signOut } from './auth'
+import { fetchCurrentAppRole } from './moderation'
 import { useUserLocation } from './useUserLocation'
 import { usePosts, EXTERNAL_DISTANCE_METERS } from './usePosts'
 import {
@@ -22,6 +23,7 @@ import {
   incrementConfirmCount,
   incrementLikes,
   removePostImage,
+  isMissingRpcError,
   updatePost,
   uploadPostImage,
 } from './supabaseClient'
@@ -65,9 +67,19 @@ function App() {
   // 개발/데모 환경(backendConfigurationError)에서는 로그인 게이트 자체가 의미 없으니
   // 곧바로 통과시킨다(다른 RPC들이 이미 이 환경에서 legacy/dummy로 graceful하게 빠지는 것과 같은 원칙).
   const [session, setSession] = useState(() => (backendConfigurationError ? null : undefined))
+  const [authStatusError, setAuthStatusError] = useState(null)
   useEffect(() => {
     if (backendConfigurationError) return undefined
-    return subscribeToAuthState(setSession)
+    return subscribeToAuthState(
+      (nextSession) => {
+        setAuthStatusError(null)
+        setSession(nextSession)
+      },
+      (error) => {
+        console.error('[App] 세션 확인 실패', error)
+        setAuthStatusError('로그인 상태를 확인하지 못했습니다. 네트워크를 확인하고 다시 로그인해주세요.')
+      },
+    )
   }, [])
   const authReady = Boolean(backendConfigurationError) || session !== undefined
   const authenticated = Boolean(backendConfigurationError) || Boolean(session)
@@ -94,8 +106,29 @@ function App() {
   const profileReady = Boolean(backendConfigurationError) || username !== undefined
   const hasUsername = Boolean(backendConfigurationError) || Boolean(username)
 
-  // 온보딩을 보기 전에는 위치 권한 요청을 미룬다.
+  // 관리자 여부는 사용자 편의를 위한 메뉴 노출에만 사용한다. 실제 신고 데이터 접근과
+  // 조치 권한은 Supabase의 RLS/RPC가 매 요청마다 다시 검증한다.
+  const [appRole, setAppRole] = useState('user')
+  useEffect(() => {
+    if (!session?.user?.id || !hasUsername || backendConfigurationError) {
+      setAppRole('user')
+      return undefined
+    }
+
+    let cancelled = false
+    fetchCurrentAppRole()
+      .then((role) => { if (!cancelled) setAppRole(role) })
+      .catch((error) => {
+        // 원격 DB에 관리자 마이그레이션을 적용하기 전에도 일반 사용자 기능은 유지한다.
+        if (!isMissingRpcError(error)) console.error('[App] 앱 권한 조회 실패', error)
+        if (!cancelled) setAppRole('user')
+      })
+    return () => { cancelled = true }
+  }, [hasUsername, session?.user?.id])
+
+  // 로그인·아이디·온보딩이 모두 끝나기 전에는 위치 권한과 게시글 API 요청을 시작하지 않는다.
   const [onboarded, setOnboarded] = useState(hasSeenOnboarding)
+  const appDataEnabled = authenticated && hasUsername && onboarded
   const {
     displayLocation,
     trustedLocation,
@@ -103,7 +136,7 @@ function App() {
     locationError,
     isLocationTrusted,
     retryLocation,
-  } = useUserLocation(onboarded)
+  } = useUserLocation(appDataEnabled)
   const {
     posts,
     activePosts,
@@ -118,7 +151,7 @@ function App() {
     removePost,
     communityPosts,
     now,
-  } = usePosts(displayLocation)
+  } = usePosts(displayLocation, { enabled: appDataEnabled })
 
   const [selectedPostId, setSelectedPostId] = useState(null)
   const [confirmingPostId, setConfirmingPostId] = useState(null)
@@ -451,7 +484,13 @@ function App() {
   // 로그인(이메일+비밀번호 가입/인증 또는 인증코드) + 아이디 설정이 끝나기 전에는
   // 온보딩/앱 대신 로그인 게이트를 보여준다.
   if (!authenticated || !hasUsername) {
-    return <AuthGate session={authenticated ? session : null} onUsernameSaved={setUsername} />
+    return (
+      <AuthGate
+        session={authenticated ? session : null}
+        statusError={authStatusError}
+        onUsernameSaved={setUsername}
+      />
+    )
   }
 
   // 온보딩 미완료 시 앱(위치 요청 포함) 대신 소개 화면을 먼저 보여준다.
@@ -555,6 +594,7 @@ function App() {
             onOpenQuickPost={() => setQuickPostOpen(true)}
             quickPostDisabled={!isLocationTrusted}
             username={username}
+            appRole={appRole}
             onSignOut={signOut}
           />
         </section>

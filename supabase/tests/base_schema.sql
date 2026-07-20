@@ -6,6 +6,18 @@ create role authenticated nologin;
 create schema extensions;
 create extension pgcrypto with schema extensions;
 
+-- Minimal Supabase Auth contract used by the v6 profile/RBAC migration tests.
+create schema auth;
+create table auth.users (
+  id uuid primary key,
+  email text unique
+);
+create function auth.uid() returns uuid
+language sql stable
+as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
+
 create table public.posts (
   id uuid primary key default extensions.gen_random_uuid(),
   lat double precision not null,

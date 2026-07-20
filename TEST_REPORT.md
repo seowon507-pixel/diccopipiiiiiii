@@ -7,6 +7,20 @@
 
 > 아래 1~8장은 원본 `main` 커밋에서 재현한 결함 기록이다. `kimiv`의 최신 기능·보안 재검증 결과와 초기 v1 결과는 바로 아래에 별도로 정리했다.
 
+## 0-SEC-v9. 로그인·신고 관리자 보안 보강
+
+- 자동 테스트: **22개 파일, 67개 테스트 통과**
+- production/PWA build: 성공
+- 로그인 전 위치 권한·게시글 조회·Realtime 구독 차단
+- 세션 초기 조회 실패 시 빈 화면 대신 로그인 오류 안내로 복구
+- 로그인 입력 label과 탭 방향키·Home·End 조작 추가
+- `profiles`/사용자명 RPC를 원격 수동 설정이 아닌 migration으로 정의
+- 신고자 식별을 browser secret에서 `auth.uid()`로 전환해 계정당 중복 신고 차단
+- 비공개 `admin`/`moderator` 역할, 안전한 신고 큐, 숨김·복구·기각, 감사 로그 추가
+- 일반 사용자는 신고 원본·역할 저장소·감사 로그에 접근할 수 없고 신고자 식별정보는 관리자 큐에도 반환하지 않음
+- 원격 DB 적용은 프로젝트 소유자 권한이 필요하므로 `SUPABASE_OWNER_ACTIONS.md`로 전달 절차 분리
+- 판정: **코드 GO / 원격 Supabase v6 migration 적용 전 관리자 기능은 BLOCKED**
+
 ## 0-UI-v8. 독립 디자이너 UI 시안 5종 재검증
 
 - 비교 시안: **Civic Grid / Korean Editorial / Friendly Mobile / Spatial Desk / Clear Stack**
@@ -82,7 +96,7 @@
 2. `storage_cleanup_queue`를 service-role로 처리하는 worker와 모니터링이 필요하다. 현재 migration은 정리 요청을 안전하게 큐에 넣지만 Storage 객체를 직접 지우지는 않는다.
 3. 실제 카카오/Supabase staging 키로 지도 SDK, Realtime reconnect, 이미지 업로드/정리까지 포함한 E2E를 통과해야 한다.
 4. 익명 actor token은 localStorage 삭제로 회전할 수 있으므로, 공개 베타 전 Edge Function의 IP 기반 제한·Turnstile 등 추가 남용 방어가 필요하다.
-5. 신고·차단·관리자 삭제·콘텐츠 모더레이션 운영 흐름은 여전히 별도 구현이 필요하다.
+5. 신고 검토·숨김·복구·기각·감사 흐름은 v9에서 구현했다. 원격 Supabase에 v6 migration을 적용하고 첫 관리자 UUID를 지정해야 활성화된다.
 
 ### migration 미적용 로컬 DB 기능 복원 검증
 

@@ -14,24 +14,49 @@ function requireAuth() {
 // 세션 변화(최초 조회 포함)를 구독한다. onChange(session|null)를 호출하고, 구독 해제 함수를 반환한다.
 // Supabase 설정이 안 된 환경(dummy-data 개발 모드)에서는 로그인 게이트 자체가 의미 없으니
 // 즉시 null을 알리고 아무것도 구독하지 않는다.
-export function subscribeToAuthState(onChange) {
+export function subscribeToAuthState(onChange, onError) {
   if (!supabase) {
     queueMicrotask(() => onChange(null))
     return () => {}
   }
 
-  supabase.auth.getSession().then(({ data }) => onChange(data.session ?? null))
+  let active = true
+  let receivedAuthEvent = false
   const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    if (!active) return
+    receivedAuthEvent = true
     onChange(session ?? null)
   })
-  return () => listener.subscription.unsubscribe()
+
+  supabase.auth.getSession()
+    .then(({ data, error }) => {
+      if (error) throw error
+      // onAuthStateChange가 더 최신 세션을 먼저 전달했다면 오래된 getSession 결과로
+      // 되돌리지 않는다.
+      if (active && !receivedAuthEvent) onChange(data.session ?? null)
+    })
+    .catch((error) => {
+      if (!active) return
+      // 세션 조회 실패가 영구적인 빈 화면으로 이어지지 않게 로그인 화면으로 복구한다.
+      onChange(null)
+      onError?.(error)
+    })
+
+  return () => {
+    active = false
+    listener.subscription.unsubscribe()
+  }
 }
 
 // 회원가입은 이메일+비밀번호로만 한다 — 이메일 인증(확인 링크)을 눌러야 최종 가입이 끝난다.
 // Supabase 대시보드의 Authentication > Providers > Email > "Confirm email"이 켜져 있어야
 // 링크를 누르기 전까지 세션이 생기지 않는다(기본값이 켜짐).
 export async function signUpWithPassword(email, password) {
-  const { data, error } = await requireAuth().signUp({ email, password })
+  const { data, error } = await requireAuth().signUp({
+    email,
+    password,
+    options: { emailRedirectTo: globalThis.location?.origin },
+  })
   if (error) throw error
   return data
 }

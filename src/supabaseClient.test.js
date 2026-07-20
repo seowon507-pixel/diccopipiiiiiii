@@ -161,14 +161,26 @@ describe('Supabase legacy compatibility', () => {
       p_device_secret: 'd'.repeat(32),
       p_actor_token: expect.any(String),
     })
-    expect(rpcMock).toHaveBeenNthCalledWith(2, 'report_post_v2', {
-      p_post_id: 'post-1',
-      p_reporter_secret: 'r'.repeat(32),
-    })
+    expect(rpcMock).toHaveBeenNthCalledWith(2, 'report_post_v3', { p_post_id: 'post-1' })
     expect(rpcMock).toHaveBeenNthCalledWith(3, 'react_to_comment_v2', {
       p_comment_id: 'comment-1',
       p_emoji: '👍',
       p_reactor_secret: 'd'.repeat(32),
+    })
+  })
+
+  it('관리자 마이그레이션 전 개발 DB에서는 신고 v3가 없을 때만 v2로 전환한다', async () => {
+    rpcMock
+      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'missing function' } })
+      .mockResolvedValueOnce({ data: { report_count: 1, hidden: false }, error: null })
+    const { reportPost } = await loadClient()
+
+    await reportPost('post-1', 'r'.repeat(32))
+
+    expect(rpcMock).toHaveBeenNthCalledWith(1, 'report_post_v3', { p_post_id: 'post-1' })
+    expect(rpcMock).toHaveBeenNthCalledWith(2, 'report_post_v2', {
+      p_post_id: 'post-1',
+      p_reporter_secret: 'r'.repeat(32),
     })
   })
 

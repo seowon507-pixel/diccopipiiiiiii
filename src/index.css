@@ -5329,3 +5329,160 @@ textarea:focus-visible {
     border-color: var(--color-rule-strong);
   }
 }
+
+/* 관리자 신고 검토 — 일반 메뉴와 같은 기록지 문법을 유지하되 조치 상태를 명확히 구분한다. */
+.moderation-page {
+  padding-bottom: 28px;
+}
+
+.menu-card-icon--moderation {
+  color: #9f2d20;
+  background: #fff1ee;
+}
+
+.moderation-intro,
+.moderation-empty {
+  margin: 8px 0 18px;
+  color: var(--color-ink-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.moderation-filters {
+  display: flex;
+  gap: 7px;
+  margin-bottom: 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.moderation-filter {
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 999px;
+  color: var(--color-ink-muted);
+  background: var(--color-surface);
+}
+
+.moderation-filter.active {
+  border-color: var(--color-ink);
+  color: var(--color-surface);
+  background: var(--color-ink);
+}
+
+.moderation-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #d57768;
+  color: #7e2117;
+  background: #fff5f2;
+}
+
+.moderation-error button {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.moderation-list {
+  display: grid;
+  gap: 12px;
+}
+
+.moderation-card {
+  padding: 16px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 4px;
+  background: var(--color-surface);
+}
+
+.moderation-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 11px;
+}
+
+.moderation-target,
+.moderation-count,
+.moderation-hidden {
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.moderation-target { background: var(--color-surface-muted); }
+.moderation-count { color: #8b271c; background: #fff0ed; }
+.moderation-hidden { color: #fff; background: #8b271c; }
+
+.moderation-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.moderation-content {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+
+.moderation-meta,
+.moderation-resolution {
+  margin: 10px 0 0;
+  color: var(--color-ink-muted);
+  font-size: 0.78rem;
+}
+
+.moderation-note-label {
+  display: block;
+  margin-top: 14px;
+  color: var(--color-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.moderation-note-label span {
+  color: var(--color-ink-muted);
+  font-weight: 400;
+}
+
+.moderation-note {
+  width: 100%;
+  min-height: 78px;
+  margin-top: 7px;
+  padding: 10px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 3px;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  resize: vertical;
+}
+
+.moderation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.moderation-actions button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-rule-strong);
+  border-radius: 3px;
+  background: var(--color-surface);
+}
+
+.moderation-actions button:first-child {
+  border-color: #8b271c;
+  color: #fff;
+  background: #8b271c;
+}

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, kimiv]
+    branches: [main, kimiv, v5, Ui-kimi]
   pull_request:
 
 permissions:
@@ -43,7 +43,10 @@ jobs:
           docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260719_v4_feature_hardening.sql
           docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260718_v1_security_hardening.sql
           docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260719_v4_feature_hardening.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260720024147_v6_auth_moderation_admin_security.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260720024147_v6_auth_moderation_admin_security.sql
       - name: Verify security behavior
         run: |
           docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v1.sql
           docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v4.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v6.sql

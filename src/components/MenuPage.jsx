@@ -3,9 +3,11 @@ import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
 import RecoveryCode from './RecoveryCode.jsx'
+import ModerationPage from './ModerationPage.jsx'
 import AppIcon from './AppIcon.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
 import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
+import { canModerate } from '../moderation'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
@@ -20,6 +22,7 @@ function MenuPage({
   userLocation,
   now,
   username,
+  appRole = 'user',
   onSignOut,
 }) {
   const [view, setView] = useState('home')
@@ -158,6 +161,19 @@ function MenuPage({
                 </span>
                 <AppIcon name="chevron" size={18} className="menu-card-arrow" />
               </button>
+              {canModerate(appRole) && (
+                <button type="button" className="menu-card menu-card--moderation" onClick={() => setView('moderation')}>
+                  <span className="menu-card-icon menu-card-icon--moderation"><AppIcon name="shield" size={22} /></span>
+                  <span className="menu-card-text">
+                    <span className="menu-card-label-row">
+                      <span className="menu-card-label">신고 관리</span>
+                      <span className="menu-card-status">{appRole === 'admin' ? '관리자' : '운영자'}</span>
+                    </span>
+                    <span className="menu-card-desc">신고된 게시글과 댓글을 검토하고 조치해요</span>
+                  </span>
+                  <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+                </button>
+              )}
               <button
                 type="button"
                 className="menu-card menu-card--privacy"
@@ -219,6 +235,10 @@ function MenuPage({
           </div>
           <RecoveryCode />
         </>
+      )}
+
+      {view === 'moderation' && canModerate(appRole) && (
+        <ModerationPage onBack={() => setView('home')} />
       )}
 
       {view === 'all' && (

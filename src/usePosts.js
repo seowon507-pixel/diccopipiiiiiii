@@ -121,9 +121,9 @@ export function applyPostEvents(snapshot, events) {
 
 // 게시글 목록/실시간 구독/카테고리 필터를 App 레벨에서 한 번만 관리해서
 // 지도 탭과 커뮤니티 탭이 같은 데이터를 공유하게 한다.
-export function usePosts(userLocation) {
+export function usePosts(userLocation, { enabled = true } = {}) {
   const [posts, setPosts] = useState([])
-  const [postsStatus, setPostsStatus] = useState('loading')
+  const [postsStatus, setPostsStatus] = useState(enabled ? 'loading' : 'idle')
   const [postsError, setPostsError] = useState(null)
   const [realtimeStatus, setRealtimeStatus] = useState('CONNECTING')
   const [now, setNow] = useState(() => Date.now())
@@ -148,6 +148,8 @@ export function usePosts(userLocation) {
   }, [applyEvent])
 
   const refetchPosts = useCallback(async ({ background = postsReadyRef.current } = {}) => {
+    if (!enabled) return
+
     const generation = fetchGenerationRef.current + 1
     fetchGenerationRef.current = generation
     const sync = { generation, events: [] }
@@ -170,16 +172,31 @@ export function usePosts(userLocation) {
     } finally {
       if (activeSyncRef.current === sync) activeSyncRef.current = null
     }
-  }, [])
+  }, [enabled])
 
   // 유효시간 경과율(반투명/만료)을 주기적으로 재계산하기 위한 시계
   useEffect(() => {
+    if (!enabled) return undefined
     const interval = setInterval(() => setNow(Date.now()), TICK_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [])
+  }, [enabled])
 
   // 다른 사용자가 등록/수정/삭제한 게시글을 실시간으로 반영한다.
   useEffect(() => {
+    if (!enabled) {
+      mountedRef.current = false
+      postsReadyRef.current = false
+      fetchGenerationRef.current += 1
+      activeSyncRef.current = null
+      lastRealtimeStatusRef.current = null
+      setPosts([])
+      setPostsStatus('idle')
+      setPostsError(null)
+      setRealtimeStatus('CLOSED')
+      return undefined
+    }
+
+    setPostsStatus('loading')
     mountedRef.current = true
     let active = true
 
@@ -216,7 +233,7 @@ export function usePosts(userLocation) {
       activeSyncRef.current = null
       unsubscribe()
     }
-  }, [applyEvent, refetchPosts])
+  }, [applyEvent, enabled, refetchPosts])
 
   function toggleCategory(name) {
     setActiveCategories((prev) => {
