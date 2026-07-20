@@ -255,6 +255,7 @@ function PostDetail({ post, onClose, onConfirm, confirming, onLike, liking, isMi
             >
               {post.category}
             </span>
+            {post.is_dummy && <span className="post-sample-badge">샘플 데이터</span>}
             {post.post_type === 'external' && <span className="post-inquiry-badge">외부작성</span>}
             <span className="post-detail-time">{formatTime(post.updated_at ?? post.created_at)}</span>
             {post.updated_at && <span className="map-infowindow-edited-badge">(수정됨)</span>}

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const SEOUL_CITY_HALL = { lat: 37.5665, lng: 126.978 }
-const DEV_LOCATION_OVERRIDE = { lat: 37.5575, lng: 126.9251 }
+// 개발용 전체 기능 더미데이터의 중심: 가톨릭대학교 성심교정(부천시 지봉로 43).
+const DEV_LOCATION_OVERRIDE = { lat: 37.48678, lng: 126.80139 }
 
 export const LOCATION_STATUS = Object.freeze({
   LOADING: 'loading',
@@ -46,6 +47,7 @@ export function useUserLocation(enabled = true) {
     if (!enabled) return undefined
 
     const useDevelopmentLocation = import.meta.env.DEV
+      && import.meta.env.MODE !== 'test'
       && import.meta.env.VITE_DEV_LOCATION_OVERRIDE === 'true'
 
     if (useDevelopmentLocation) {

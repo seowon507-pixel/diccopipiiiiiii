@@ -42,7 +42,10 @@ function PostCard({ post, onClick, distance = null, now }) {
 
         <span className="post-card-main">
           <span className="sr-only">{post.category}</span>
-          <span className="post-card-title">{post.title || post.content}</span>
+          <span className="post-card-title">
+            {post.is_dummy && <span className="post-sample-badge">샘플</span>}
+            {post.title || post.content}
+          </span>
           <span className="post-card-subline">{sublineParts.join(' · ')}</span>
         </span>
 

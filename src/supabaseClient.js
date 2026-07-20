@@ -1,11 +1,31 @@
 import { createClient } from '@supabase/supabase-js'
-import dummyData from '../dummy-data.json'
 import { getDistanceMeters } from './geo'
 import { generateOwnerSecret, getOrCreateActorToken } from './myPosts'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
-const useDummyData = import.meta.env.DEV && import.meta.env.VITE_USE_DUMMY_DATA === 'true'
+export const useDummyData = import.meta.env.DEV
+  && import.meta.env.MODE !== 'test'
+  && import.meta.env.VITE_USE_DUMMY_DATA === 'true'
+let dummyStorePromise = null
+
+function loadDummyStore() {
+  dummyStorePromise ??= import('./dummyStore')
+  return dummyStorePromise
+}
+
+function subscribeToDummyStore(method, ...args) {
+  let active = true
+  let unsubscribe = () => {}
+  void loadDummyStore().then((store) => {
+    if (!active) return
+    unsubscribe = store[method](...args)
+  })
+  return () => {
+    active = false
+    unsubscribe()
+  }
+}
 // 운영 환경은 반드시 보안 migration을 사용한다. 아직 migration을 적용하지 않은 기존 개발 DB는
 // 명시적으로 이 플래그를 켠 경우에만 legacy 계약으로 제한적으로 되돌아간다.
 const allowLegacyBackend = import.meta.env.DEV && import.meta.env.VITE_ALLOW_LEGACY_BACKEND === 'true'
@@ -132,7 +152,7 @@ function activateChannel(channel, onStatus) {
 }
 
 export async function getPosts() {
-  if (useDummyData) return dummyData.posts
+  if (useDummyData) return (await loadDummyStore()).getDummyPosts()
 
   const { data, error } = await requireSupabase()
     .from('posts')
@@ -162,6 +182,22 @@ export async function createPost({
   deviceSecret,
 }) {
   if (!ownerSecret) throw new TypeError('ownerSecret is required')
+  if (useDummyData) {
+    return (await loadDummyStore()).createDummyPost({
+      id,
+      actorToken,
+      authorLat,
+      authorLng,
+      lat,
+      lng,
+      category,
+      title,
+      content,
+      imageUrl,
+      icon,
+      postType,
+    })
+  }
 
   return withLegacyFallback(
     'createPost',
@@ -213,6 +249,7 @@ export async function createPost({
 }
 
 export async function getPins() {
+  if (useDummyData) return (await loadDummyStore()).getDummyPins()
   const { data, error } = await requireSupabase().from('pins').select('*')
   if (error) throw error
   return data
@@ -221,6 +258,7 @@ export async function getPins() {
 // 빈 핀 생성. deviceSecret은 익명 소유권 복구용으로 legacy RPC에 함께 전달한다.
 export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSecret, deviceSecret }) {
   if (!ownerSecret) throw new TypeError('ownerSecret is required')
+  if (useDummyData) return (await loadDummyStore()).createDummyPin({ id, lat, lng })
 
   return withLegacyFallback(
     'createPin',
@@ -243,6 +281,7 @@ export async function createPin({ id = randomId(), actorToken, lat, lng, ownerSe
 
 // 다른 기기에서 예전 device_secret(복구 코드)을 입력했을 때 그 코드로 만든 글/핀 소유권을 되찾는다.
 export async function restoreOwnership(deviceSecret) {
+  if (useDummyData) return []
   return withLegacyFallback(
     'restoreOwnership',
     () => rpcRows('restore_ownership_v2', {
@@ -254,6 +293,7 @@ export async function restoreOwnership(deviceSecret) {
 }
 
 export async function deletePin(id, ownerSecret) {
+  if (useDummyData) return (await loadDummyStore()).deleteDummyPin(id)
   return withLegacyFallback(
     'deletePin',
     () => rpc('delete_own_pin_v2', {
@@ -269,6 +309,7 @@ export async function deletePin(id, ownerSecret) {
 
 // The v2 RPC owns the retention constant. A caller can no longer lower it to mass-delete fresh pins.
 export async function deleteExpiredPins(olderThanMinutes = LEGACY_PIN_RETENTION_MINUTES) {
+  if (useDummyData) return (await loadDummyStore()).deleteExpiredDummyPins()
   await withLegacyFallback(
     'deleteExpiredPins',
     () => rpc('delete_expired_pins_v2', {}),
@@ -279,6 +320,7 @@ export async function deleteExpiredPins(olderThanMinutes = LEGACY_PIN_RETENTION_
 }
 
 export function subscribeToPinChanges({ onInsert, onDelete, onStatus } = {}) {
+  if (useDummyData) return subscribeToDummyStore('subscribeToDummyPins', { onInsert, onDelete, onStatus })
   if (!supabase) return unavailableSubscription(onStatus)
 
   const channel = supabase
@@ -298,6 +340,7 @@ export function subscribeToPinChanges({ onInsert, onDelete, onStatus } = {}) {
 }
 
 export async function deletePost(id, ownerSecret) {
+  if (useDummyData) return (await loadDummyStore()).deleteDummyPost(id)
   return withLegacyFallback(
     'deletePost',
     () => rpc('delete_own_post_v2', {
@@ -316,6 +359,7 @@ export async function uploadPostImage(file) {
     throw new TypeError('JPEG, PNG, WebP, GIF 이미지만 업로드할 수 있습니다.')
   }
   if (file.size > MAX_IMAGE_BYTES) throw new RangeError('이미지는 5MB 이하여야 합니다.')
+  if (useDummyData) return URL.createObjectURL(file)
 
   const extension = file.type === 'image/jpeg' ? 'jpg' : file.type.split('/')[1]
   const path = `${randomId()}.${extension}`
@@ -344,6 +388,10 @@ function postImagePathFromUrl(imageUrl) {
 
 // Cleanup is queued in Postgres and completed by the service-role cleanup worker through Storage API.
 export async function cleanupPostImage(imageUrl, reason = 'abandoned_upload') {
+  if (useDummyData) {
+    if (imageUrl?.startsWith('blob:')) URL.revokeObjectURL(imageUrl)
+    return true
+  }
   const objectPath = postImagePathFromUrl(imageUrl)
   if (!objectPath) return false
 
@@ -360,6 +408,7 @@ export const removePostImage = cleanupPostImage
 
 export async function updatePost(id, ownerSecret, { category, title, content, imageUrl, icon }) {
   if (!ownerSecret) throw new TypeError('ownerSecret is required')
+  if (useDummyData) return (await loadDummyStore()).updateDummyPost(id, { category, title, content, imageUrl, icon })
 
   return withLegacyFallback(
     'updatePost',
@@ -412,6 +461,7 @@ async function legacyIncrementPostField(id, field) {
 }
 
 export async function incrementConfirmCount(id, actorToken) {
+  if (useDummyData) return (await loadDummyStore()).confirmDummyPost(id, actorToken)
   return withLegacyFallback(
     'incrementConfirmCount',
     () => rpc('confirm_post_v2', {
@@ -423,6 +473,7 @@ export async function incrementConfirmCount(id, actorToken) {
 }
 
 export async function incrementLikes(id, actorToken) {
+  if (useDummyData) return (await loadDummyStore()).likeDummyPost(id, actorToken)
   return withLegacyFallback(
     'incrementLikes',
     () => rpc('like_post_v2', {
@@ -435,6 +486,7 @@ export async function incrementLikes(id, actorToken) {
 
 // 특정 게시글의 댓글 목록 조회. 신고 누적으로 hidden=true가 된 댓글은 제외한다.
 export async function getComments(postId) {
+  if (useDummyData) return (await loadDummyStore()).getDummyComments(postId)
   const { data, error } = await requireSupabase()
     .from('comments')
     .select('*')
@@ -451,6 +503,9 @@ export async function createComment(postId, content, options = {}) {
   const parentCommentId = typeof options === 'string' ? options : (options.parentCommentId ?? null)
   const id = typeof options === 'object' && options.id ? options.id : randomId()
   const actorToken = typeof options === 'object' ? options.actorToken : undefined
+  if (useDummyData) {
+    return (await loadDummyStore()).createDummyComment({ id, postId, content, parentCommentId, actorToken })
+  }
 
   return withLegacyFallback(
     'createComment',
@@ -479,6 +534,9 @@ export function subscribeToComments(postId, options = {}, legacyStatus) {
     ? { onInsert: options, onStatus: legacyStatus }
     : options
   const { onInsert, onUpdate, onStatus } = normalized
+  if (useDummyData) {
+    return subscribeToDummyStore('subscribeToDummyComments', postId, { onInsert, onUpdate, onStatus })
+  }
   if (!supabase) return unavailableSubscription(onStatus)
 
   const channel = supabase
@@ -500,6 +558,7 @@ export function subscribeToComments(postId, options = {}, legacyStatus) {
 // 게시글/댓글 신고. v3는 로그인한 auth.uid()를 서버에서 직접 사용해 한 계정의 중복 신고를 막는다.
 // 아직 관리자 마이그레이션을 적용하지 않은 개발 DB만 v2의 browser reporter secret으로 후퇴한다.
 export async function reportPost(postId, reporterSecret) {
+  if (useDummyData) return (await loadDummyStore()).reportDummyPost(postId, reporterSecret)
   return withLegacyFallback(
     'reportPost',
     () => rpc('report_post_v3', { p_post_id: postId }),
@@ -511,6 +570,7 @@ export async function reportPost(postId, reporterSecret) {
 }
 
 export async function reportComment(commentId, reporterSecret) {
+  if (useDummyData) return (await loadDummyStore()).reportDummyComment(commentId, reporterSecret)
   return withLegacyFallback(
     'reportComment',
     () => rpc('report_comment_v3', { p_comment_id: commentId }),
@@ -525,6 +585,7 @@ export async function reportComment(commentId, reporterSecret) {
 // 같은 이모지를 다시 누르면 추가↔삭제가 토글된다. comments.reactions 갱신은 realtime UPDATE로도
 // 오지만(subscribeToComments), 이 응답으로 바로 낙관적 갱신할 수 있다.
 export async function reactToComment(commentId, emoji, reactorSecret) {
+  if (useDummyData) return (await loadDummyStore()).reactToDummyComment(commentId, emoji, reactorSecret)
   return withLegacyFallback(
     'reactToComment',
     () => rpc('react_to_comment_v2', {
@@ -547,6 +608,9 @@ export async function getNearbyChatMessages({
   limit = 200,
   before = null,
 }) {
+  if (useDummyData) {
+    return (await loadDummyStore()).getDummyNearbyChatMessages({ lat, lng, radiusMeters, limit, before })
+  }
   const rows = await withLegacyFallback(
     'getNearbyChatMessages',
     () => rpcRows('get_nearby_chat_messages_v2', {
@@ -628,6 +692,9 @@ export async function getChatMessages(options) {
 }
 
 export async function sendChatMessage({ id = randomId(), actorToken, lat, lng, content }) {
+  if (useDummyData) {
+    return (await loadDummyStore()).sendDummyChatMessage({ id, actorToken, lat, lng, content })
+  }
   return withLegacyFallback(
     'sendChatMessage',
     () => rpc('send_chat_message_v2', {
@@ -667,6 +734,7 @@ export async function upsertPushSubscription({
   quietStart,
   quietEnd,
 }) {
+  if (useDummyData) return true
   const params = {
     p_device_secret: deviceSecret,
     p_endpoint: endpoint,
@@ -686,6 +754,7 @@ export async function upsertPushSubscription({
 
 // 알림을 끌 때 서버에 저장된 구독을 지운다.
 export async function deletePushSubscription(deviceSecret) {
+  if (useDummyData) return true
   return withLegacyFallback(
     'deletePushSubscription',
     () => rpc('delete_push_subscription_v2', { p_device_secret: deviceSecret }),
@@ -695,6 +764,9 @@ export async function deletePushSubscription(deviceSecret) {
 
 // posts 테이블의 등록(INSERT)/수정(UPDATE)/삭제(DELETE)를 실시간으로 구독한다. 구독 해제 함수를 반환한다.
 export function subscribeToPostChanges({ onInsert, onUpdate, onDelete, onStatus } = {}) {
+  if (useDummyData) {
+    return subscribeToDummyStore('subscribeToDummyPosts', { onInsert, onUpdate, onDelete, onStatus })
+  }
   if (!supabase) return unavailableSubscription(onStatus)
 
   const channel = supabase

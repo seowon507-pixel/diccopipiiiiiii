@@ -26,6 +26,7 @@ import {
   isMissingRpcError,
   updatePost,
   uploadPostImage,
+  useDummyData,
 } from './supabaseClient'
 import { findNearbyDuplicate, saveLastPost } from './abuseCheck'
 import {
@@ -63,13 +64,16 @@ function App() {
       delete document.documentElement.dataset.uiTheme
     }
   }, [])
-  // 로그인 게이트 — undefined는 "아직 세션 확인 전"을 뜻한다. Supabase가 설정 안 된
-  // 개발/데모 환경(backendConfigurationError)에서는 로그인 게이트 자체가 의미 없으니
-  // 곧바로 통과시킨다(다른 RPC들이 이미 이 환경에서 legacy/dummy로 graceful하게 빠지는 것과 같은 원칙).
-  const [session, setSession] = useState(() => (backendConfigurationError ? null : undefined))
+  // 로그인 게이트 — undefined는 "아직 세션 확인 전"을 뜻한다. 명시적인 개발용 더미 모드는
+  // 실제 Supabase Auth를 호출하지 않고 로컬 샘플 사용자로 진입한다.
+  const [session, setSession] = useState(() => (
+    useDummyData
+      ? { user: { id: 'dummy-songsim-user' } }
+      : (backendConfigurationError ? null : undefined)
+  ))
   const [authStatusError, setAuthStatusError] = useState(null)
   useEffect(() => {
-    if (backendConfigurationError) return undefined
+    if (useDummyData || backendConfigurationError) return undefined
     return subscribeToAuthState(
       (nextSession) => {
         setAuthStatusError(null)
@@ -81,13 +85,17 @@ function App() {
       },
     )
   }, [])
-  const authReady = Boolean(backendConfigurationError) || session !== undefined
-  const authenticated = Boolean(backendConfigurationError) || Boolean(session)
+  const authReady = useDummyData || Boolean(backendConfigurationError) || session !== undefined
+  const authenticated = useDummyData || Boolean(backendConfigurationError) || Boolean(session)
 
   // 로그인 후 고유 아이디(profiles.username) 조회 — undefined는 "아직 조회 전", null은
   // "로그인은 했지만 아이디를 아직 안 정함"을 뜻한다. userId가 바뀔 때만(로그인/로그아웃) 다시 조회한다.
-  const [username, setUsername] = useState(null)
+  const [username, setUsername] = useState(() => (useDummyData ? 'songsim_demo' : null))
   useEffect(() => {
+    if (useDummyData) {
+      setUsername('songsim_demo')
+      return undefined
+    }
     const userId = session?.user?.id
     if (!userId) {
       setUsername(null)
@@ -103,14 +111,14 @@ function App() {
       })
     return () => { cancelled = true }
   }, [session?.user?.id])
-  const profileReady = Boolean(backendConfigurationError) || username !== undefined
-  const hasUsername = Boolean(backendConfigurationError) || Boolean(username)
+  const profileReady = useDummyData || Boolean(backendConfigurationError) || username !== undefined
+  const hasUsername = useDummyData || Boolean(backendConfigurationError) || Boolean(username)
 
   // 관리자 여부는 사용자 편의를 위한 메뉴 노출에만 사용한다. 실제 신고 데이터 접근과
   // 조치 권한은 Supabase의 RLS/RPC가 매 요청마다 다시 검증한다.
   const [appRole, setAppRole] = useState('user')
   useEffect(() => {
-    if (!session?.user?.id || !hasUsername || backendConfigurationError) {
+    if (useDummyData || !session?.user?.id || !hasUsername || backendConfigurationError) {
       setAppRole('user')
       return undefined
     }
@@ -127,7 +135,7 @@ function App() {
   }, [hasUsername, session?.user?.id])
 
   // 로그인·아이디·온보딩이 모두 끝나기 전에는 위치 권한과 게시글 API 요청을 시작하지 않는다.
-  const [onboarded, setOnboarded] = useState(hasSeenOnboarding)
+  const [onboarded, setOnboarded] = useState(() => useDummyData || hasSeenOnboarding())
   const appDataEnabled = authenticated && hasUsername && onboarded
   const {
     displayLocation,
@@ -595,7 +603,9 @@ function App() {
             quickPostDisabled={!isLocationTrusted}
             username={username}
             appRole={appRole}
-            onSignOut={signOut}
+            onSignOut={useDummyData
+              ? () => setToast({ key: `dummy-signout-${Date.now()}`, message: '샘플 모드에서는 로그아웃하지 않아요.' })
+              : signOut}
           />
         </section>
 

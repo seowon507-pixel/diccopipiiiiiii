@@ -1037,7 +1037,7 @@ function MapView({
                     backgroundColor: CATEGORY_COLORS[post.category] ?? DEFAULT_CATEGORY_COLOR,
                     opacity: getFadeOpacity(post, now),
                   }}
-                  aria-label={`${post.category} 게시글`}
+                  aria-label={`${post.is_dummy ? '샘플 ' : ''}${post.category} 게시글`}
                   onClick={(event) => {
                     event.stopPropagation()
                     setPreviewPosition(null)
