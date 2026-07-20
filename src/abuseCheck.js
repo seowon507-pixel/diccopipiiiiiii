@@ -4,35 +4,39 @@ const STORAGE_KEY = 'woorimadong_last_post'
 const DUPLICATE_WINDOW_MS = 5 * 60 * 1000 // 5분
 const DUPLICATE_RADIUS_METERS = 50
 
-// 마지막으로 작성/수정한 게시글 정보를 localStorage에서 읽는다.
-function getLastPost() {
+// 최근 작성/수정 게시글을 localStorage에서 읽는다. 예전 단일 객체 형식도 호환한다.
+function getRecentPosts() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : null
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : [parsed]
   } catch {
-    return null
+    return []
   }
 }
 
-// 게시글 작성/수정 후 마지막 작성 시간/좌표를 localStorage에 저장한다.
+// 게시글 작성/수정 후 최근 작성 시간/좌표를 최대 20건 저장한다.
 export function saveLastPost({ id, lat, lng }) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ id, lat, lng, savedAt: Date.now() }))
+    const now = Date.now()
+    const recent = getRecentPosts()
+      .filter((post) => now - post.savedAt < DUPLICATE_WINDOW_MS)
+      .filter((post) => post.id !== id)
+    recent.unshift({ id, lat, lng, savedAt: now })
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(recent.slice(0, 20)))
+    return true
   } catch {
-    // localStorage를 쓸 수 없는 환경(프라이빗 모드 등)이면 조용히 무시한다.
+    return false
   }
 }
 
 // 같은 사용자가 5분 이내, 반경 50m 이내에 쓴 글이 있으면 그 정보를 반환한다 (없으면 null).
 export function findNearbyDuplicate(lat, lng) {
-  const last = getLastPost()
-  if (!last) return null
-
-  const withinTime = Date.now() - last.savedAt < DUPLICATE_WINDOW_MS
-  if (!withinTime) return null
-
-  const distance = getDistanceMeters(lat, lng, last.lat, last.lng)
-  if (distance > DUPLICATE_RADIUS_METERS) return null
-
-  return last
+  const now = Date.now()
+  return getRecentPosts().find((post) => {
+    const age = now - post.savedAt
+    if (age < 0 || age >= DUPLICATE_WINDOW_MS) return false
+    return getDistanceMeters(lat, lng, post.lat, post.lng) <= DUPLICATE_RADIUS_METERS
+  }) ?? null
 }

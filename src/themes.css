@@ -1,0 +1,255 @@
+/* Friendly Mobile — 한 손 조작 중심 모바일 네이티브 디자인(고정). index.css의 기본(alley)
+   레이어 위에 얹는 override만 담는다. 예전에는 civic/editorial/spatial/clear까지 5종을
+   비교하는 디자인 랩이었지만, friendly로 고정하기로 하면서 나머지 4종은 삭제했다. */
+
+.tab-bar-index {
+  display: none;
+}
+
+html[data-ui-theme='friendly'] body {
+  background: #dce6df;
+}
+
+.app[data-ui-theme='friendly'] {
+  --color-canvas: #fff9ee;
+  --color-surface: #ffffff;
+  --color-ink: #202522;
+  --color-ink-muted: #68716c;
+  --color-accent: #28785a;
+  --color-accent-strong: #1d5e45;
+  --color-accent-soft: #dcebe3;
+  --color-rule: #d7ded9;
+  --color-rule-strong: #7e9187;
+  --color-online: #28785a;
+  --color-white: #ffffff;
+  --color-gray-50: #f6f7f3;
+  --color-gray-100: #eef1ed;
+  --color-gray-150: #e3e8e4;
+  --color-gray-200: #d5ddd7;
+  --color-gray-250: #c0ccc5;
+  --color-gray-350: #718078;
+  --color-gray-500: #59665f;
+  --color-gray-700: #354139;
+  --color-gray-800: #28322d;
+  --color-gray-900: #202522;
+  max-width: 720px;
+  background: var(--color-canvas);
+  box-shadow: 0 0 34px rgba(32, 37, 34, 0.12);
+}
+
+.app[data-ui-theme='friendly'] .app-content,
+.app[data-ui-theme='friendly'] .community-page,
+.app[data-ui-theme='friendly'] .menu-page,
+.app[data-ui-theme='friendly'] .chat-room {
+  background: var(--color-canvas);
+}
+
+.app[data-ui-theme='friendly'] .tab-bar {
+  gap: 5px;
+  padding: 7px 9px calc(7px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-rule);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 -4px 18px rgba(32, 37, 34, 0.08);
+}
+
+.app[data-ui-theme='friendly'] .tab-bar-item {
+  min-height: 56px;
+  border-radius: 16px;
+  color: #718078;
+}
+
+.app[data-ui-theme='friendly'] .tab-bar-item::before {
+  display: none;
+}
+
+.app[data-ui-theme='friendly'] .tab-bar-item.active {
+  color: #1d5e45;
+  background: #dcebe3;
+}
+
+.app[data-ui-theme='friendly'] .tab-bar-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.app[data-ui-theme='friendly'] .menu-page,
+.app[data-ui-theme='friendly'] .community-page {
+  gap: 24px;
+  padding: 18px 16px 116px;
+}
+
+.app[data-ui-theme='friendly'] .menu-hero {
+  min-height: 160px;
+  padding: 22px;
+  border: 0;
+  border-radius: 22px;
+  background: #e7ece8;
+}
+
+.app[data-ui-theme='friendly'] .menu-hero-mark {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: #28785a;
+  transform: none;
+}
+
+.app[data-ui-theme='friendly'] .menu-page-title,
+.app[data-ui-theme='friendly'] .community-page-title,
+.app[data-ui-theme='friendly'] .chat-room-title {
+  font-size: 1.5rem;
+  line-height: 1.3;
+}
+
+.app[data-ui-theme='friendly'] .menu-write-action,
+.app[data-ui-theme='friendly'] .quick-post-fab,
+.app[data-ui-theme='friendly'] .empty-neighborhood-cta {
+  min-height: 52px;
+  border: 0;
+  border-radius: 16px;
+  background: #28785a;
+  box-shadow: 0 4px 18px rgba(32, 37, 34, 0.12);
+}
+
+.app[data-ui-theme='friendly'] .menu-write-action:disabled {
+  border: 1px solid #aab2ae;
+  color: #46504b;
+  background: #e4e8e5;
+  box-shadow: none;
+  opacity: 1;
+}
+
+.app[data-ui-theme='friendly'] .menu-section {
+  gap: 10px;
+}
+
+.app[data-ui-theme='friendly'] .menu-section-title {
+  padding-inline: 4px;
+  font-size: 1rem;
+}
+
+.app[data-ui-theme='friendly'] .menu-section-title::before {
+  display: none;
+}
+
+.app[data-ui-theme='friendly'] .menu-card-list {
+  gap: 0;
+  padding: 0 14px;
+  border: 1px solid var(--color-rule);
+  border-radius: 18px;
+  background: #fff;
+}
+
+.app[data-ui-theme='friendly'] .menu-card {
+  min-height: 68px;
+  padding-inline: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule);
+  border-radius: 0;
+  background: transparent;
+}
+
+.app[data-ui-theme='friendly'] .menu-card:last-child {
+  border-bottom: 0;
+}
+
+.app[data-ui-theme='friendly'] .menu-card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  color: #1d5e45;
+  background: #e7ece8;
+}
+
+.app[data-ui-theme='friendly'] .building-list,
+.app[data-ui-theme='friendly'] .post-feed {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-rule);
+  border-radius: 18px;
+  background: #fff;
+}
+
+.app[data-ui-theme='friendly'] .building-card,
+.app[data-ui-theme='friendly'] .post-card {
+  min-height: 82px;
+  border: 0;
+  border-bottom: 1px solid var(--color-rule);
+  border-radius: 0;
+  background: transparent;
+}
+
+.app[data-ui-theme='friendly'] .chat-room {
+  padding: 18px 16px 92px;
+}
+
+.app[data-ui-theme='friendly'] .chat-room-heading {
+  padding: 18px;
+  border-radius: 20px;
+  background: #e7ece8;
+}
+
+.app[data-ui-theme='friendly'] .chat-message {
+  max-width: 82%;
+  border: 0;
+  border-radius: 18px 18px 18px 5px;
+  background: #fff;
+  box-shadow: 0 1px 0 var(--color-rule);
+}
+
+.app[data-ui-theme='friendly'] .chat-message:nth-child(even) {
+  margin-left: auto;
+  border-radius: 18px 18px 5px 18px;
+  background: #dcebe3;
+}
+
+.app[data-ui-theme='friendly'] .chat-room-form {
+  min-height: 56px;
+  border: 1px solid var(--color-rule);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 4px 18px rgba(32, 37, 34, 0.08);
+}
+
+.app[data-ui-theme='friendly'] .map-header {
+  top: 12px;
+  left: 14px;
+  right: 14px;
+  padding: 11px 14px;
+  border: 1px solid rgba(40, 120, 90, 0.2);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 18px rgba(32, 37, 34, 0.12);
+  backdrop-filter: none;
+}
+
+.app[data-ui-theme='friendly'] .category-filter-toggle,
+.app[data-ui-theme='friendly'] .pin-toggle-button,
+.app[data-ui-theme='friendly'] .recenter-button {
+  border: 0;
+  border-radius: 50%;
+  color: #1d5e45;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(32, 37, 34, 0.12);
+  backdrop-filter: none;
+}
+
+.app[data-ui-theme='friendly'] .map-sheet {
+  border-radius: 24px 24px 0 0;
+  background: #fff;
+  box-shadow: 0 -4px 18px rgba(32, 37, 34, 0.12);
+  backdrop-filter: none;
+}
+
+@media (max-width: 420px) {
+  .app[data-ui-theme='friendly'] .menu-page,
+  .app[data-ui-theme='friendly'] .community-page,
+  .app[data-ui-theme='friendly'] .chat-room {
+    padding-inline: 12px;
+  }
+}

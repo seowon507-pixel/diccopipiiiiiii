@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getPosts, subscribeToPostChanges } from './supabaseClient'
-import { CATEGORIES, getElapsedRatio } from './categories'
+import { CATEGORIES, getElapsedRatio, getReactionCount } from './categories'
 import { getDistanceMeters } from './geo'
 
 const NEARBY_RADIUS_METERS = 1000
@@ -13,12 +13,17 @@ const TICK_INTERVAL_MS = 30 * 1000
 // 자유주제 글도 포함해 지도에서만 사라진다. 커뮤니티/메뉴 탭 피드에는 영향 없음(계속 무기한 열람 가능).
 // MapView.jsx의 빈 핀 노출/자동 삭제도 같은 값을 재사용한다(지도 위 컷오프 기준을 하나로 통일).
 export const MAP_VISIBLE_MINUTES = 60
+const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
 
 // 지도 마커 전용 시간 컷오프. 카테고리 만료(getElapsedRatio)와 무관하게 작성 후 MAP_VISIBLE_MINUTES가
 // 지나면 지도에서 제외한다 — usePosts의 nearbyPosts만 이 필터를 적용한다(피드용 목록은 대상 아님).
 export function filterMapVisiblePosts(posts, now) {
   const visibleMs = MAP_VISIBLE_MINUTES * 60 * 1000
-  return posts.filter((post) => now - new Date(post.created_at).getTime() < visibleMs)
+  return posts.filter((post) => {
+    const createdAt = new Date(post.created_at).getTime()
+    const age = now - createdAt
+    return Number.isFinite(createdAt) && age >= -MAX_FUTURE_SKEW_MS && age < visibleMs
+  })
 }
 
 // 카테고리 필터 + 만료 여부만 적용한, 위치 반경과 무관한 "활성 게시글" 목록.
@@ -30,6 +35,43 @@ export function filterActivePosts(posts, activeCategories, now) {
 // 임의의 중심 좌표 기준 반경(m) 필터. 메뉴 탭의 위치/건물별 커뮤니티 검색에서 사용한다.
 export function filterPostsWithinRadius(posts, center, radiusMeters) {
   return posts.filter((post) => getDistanceMeters(center.lat, center.lng, post.lat, post.lng) <= radiusMeters)
+}
+
+// 우리 동네에 글이 없을 때 대신 보여줄 콘텐츠 — 위치와 무관하게 앱 전체(activePosts)에서 뽑는다.
+// CommunityFeed/CommunityPage의 빈 상태 화면이 공유한다 — 중복 정의 금지.
+export function getTopWaitingSpots(posts, limit = 3) {
+  return posts
+    .filter((post) => post.category === '웨이팅' && post.confirm_count > 0)
+    .sort((a, b) => b.confirm_count - a.confirm_count)
+    .slice(0, limit)
+}
+
+export function getTopLikedPosts(posts, limit = 5) {
+  const liked = posts.filter((post) => (post.likes_count ?? 0) > 0)
+  const source = liked.length > 0 ? liked : posts
+
+  return [...source]
+    .sort((a, b) => (
+      liked.length > 0
+        ? (b.likes_count ?? 0) - (a.likes_count ?? 0)
+        : new Date(b.created_at) - new Date(a.created_at)
+    ))
+    .slice(0, limit)
+}
+
+// 홈(지도 탭) 상단 "이번 주 우리 동네 소식" 카드용 — 최근 며칠 사이 반응(확인/추천 합산,
+// categories.js getReactionCount 재사용)이 있는 글 중 인기순 상위 몇 개만 자동으로 뽑는다.
+// 실시간 카테고리는 유효시간이 짧아(최장 2시간) 지난 글이 이미 activePosts에서 걸러지므로,
+// 결과는 사실상 자유주제 글 위주가 된다 — "소식 요약"이라는 취지에 맞는 자연스러운 결과다.
+export const WEEKLY_DIGEST_DAYS = 7
+
+export function getWeeklyDigestPosts(posts, referenceTime, limit = 3) {
+  const cutoffMs = referenceTime - WEEKLY_DIGEST_DAYS * 24 * 60 * 60 * 1000
+
+  return posts
+    .filter((post) => new Date(post.created_at).getTime() >= cutoffMs && getReactionCount(post) > 0)
+    .sort((a, b) => getReactionCount(b) - getReactionCount(a))
+    .slice(0, limit)
 }
 
 // 같은 건물로 볼 만한 거리(m). 이 안에 있으면 같은 그룹으로 묶는다.
@@ -55,44 +97,143 @@ export function groupPostsByBuilding(posts) {
   return clusters
 }
 
+export function sortPostsNewestFirst(posts) {
+  return [...posts].sort((a, b) => {
+    const timeDifference = new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    return timeDifference || String(b.id).localeCompare(String(a.id))
+  })
+}
+
+export function upsertPostInList(posts, incoming) {
+  const exists = posts.some((post) => post.id === incoming.id)
+  const next = exists
+    ? posts.map((post) => (post.id === incoming.id ? { ...post, ...incoming } : post))
+    : [incoming, ...posts]
+  return sortPostsNewestFirst(next)
+}
+
+export function applyPostEvents(snapshot, events) {
+  return events.reduce((posts, event) => {
+    if (event.type === 'delete') return posts.filter((post) => post.id !== event.post.id)
+    return upsertPostInList(posts, event.post)
+  }, sortPostsNewestFirst(snapshot))
+}
+
 // 게시글 목록/실시간 구독/카테고리 필터를 App 레벨에서 한 번만 관리해서
 // 지도 탭과 커뮤니티 탭이 같은 데이터를 공유하게 한다.
-export function usePosts(userLocation) {
+export function usePosts(userLocation, { enabled = true } = {}) {
   const [posts, setPosts] = useState([])
+  const [postsStatus, setPostsStatus] = useState(enabled ? 'loading' : 'idle')
+  const [postsError, setPostsError] = useState(null)
+  const [realtimeStatus, setRealtimeStatus] = useState('CONNECTING')
   const [now, setNow] = useState(() => Date.now())
   const [activeCategories, setActiveCategories] = useState(() => new Set(CATEGORIES))
+  const mountedRef = useRef(false)
+  const postsReadyRef = useRef(false)
+  const fetchGenerationRef = useRef(0)
+  const activeSyncRef = useRef(null)
+  const lastRealtimeStatusRef = useRef(null)
 
-  useEffect(() => {
-    let cancelled = false
-    getPosts().then((data) => {
-      if (!cancelled) setPosts(data)
-    })
-    return () => {
-      cancelled = true
-    }
+  const applyEvent = useCallback((event) => {
+    activeSyncRef.current?.events.push(event)
+    setPosts((previous) => applyPostEvents(previous, [event]))
   }, [])
+
+  const upsertPost = useCallback((post) => {
+    applyEvent({ type: 'upsert', post })
+  }, [applyEvent])
+
+  const removePost = useCallback((id) => {
+    applyEvent({ type: 'delete', post: { id } })
+  }, [applyEvent])
+
+  const refetchPosts = useCallback(async ({ background = postsReadyRef.current } = {}) => {
+    if (!enabled) return
+
+    const generation = fetchGenerationRef.current + 1
+    fetchGenerationRef.current = generation
+    const sync = { generation, events: [] }
+    activeSyncRef.current = sync
+
+    if (!background) setPostsStatus('loading')
+    setPostsError(null)
+
+    try {
+      const snapshot = await getPosts()
+      if (!mountedRef.current || generation !== fetchGenerationRef.current) return
+
+      setPosts(applyPostEvents(snapshot, sync.events))
+      postsReadyRef.current = true
+      setPostsStatus('ready')
+    } catch (error) {
+      if (!mountedRef.current || generation !== fetchGenerationRef.current) return
+      setPostsError(error)
+      setPostsStatus('error')
+    } finally {
+      if (activeSyncRef.current === sync) activeSyncRef.current = null
+    }
+  }, [enabled])
 
   // 유효시간 경과율(반투명/만료)을 주기적으로 재계산하기 위한 시계
   useEffect(() => {
+    if (!enabled) return undefined
     const interval = setInterval(() => setNow(Date.now()), TICK_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [])
+  }, [enabled])
 
   // 다른 사용자가 등록/수정/삭제한 게시글을 실시간으로 반영한다.
   useEffect(() => {
+    if (!enabled) {
+      mountedRef.current = false
+      postsReadyRef.current = false
+      fetchGenerationRef.current += 1
+      activeSyncRef.current = null
+      lastRealtimeStatusRef.current = null
+      setPosts([])
+      setPostsStatus('idle')
+      setPostsError(null)
+      setRealtimeStatus('CLOSED')
+      return undefined
+    }
+
+    setPostsStatus('loading')
+    mountedRef.current = true
+    let active = true
+
     const unsubscribe = subscribeToPostChanges({
       onInsert: (newPost) => {
-        setPosts((prev) => (prev.some((post) => post.id === newPost.id) ? prev : [newPost, ...prev]))
+        applyEvent({ type: 'upsert', post: newPost })
       },
       onUpdate: (updatedPost) => {
-        setPosts((prev) => prev.map((post) => (post.id === updatedPost.id ? { ...post, ...updatedPost } : post)))
+        // 신고 누적으로 hidden=true가 되면(자동 숨김) 병합 대신 목록에서 바로 제거한다.
+        applyEvent({ type: updatedPost.hidden ? 'delete' : 'upsert', post: updatedPost })
       },
       onDelete: (deletedPost) => {
-        setPosts((prev) => prev.filter((post) => post.id !== deletedPost.id))
+        applyEvent({ type: 'delete', post: deletedPost })
+      },
+      onStatus: (status) => {
+        if (!active) return
+        const previousStatus = lastRealtimeStatusRef.current
+        lastRealtimeStatusRef.current = status
+        setRealtimeStatus(status)
+
+        if (status === 'SUBSCRIBED' && previousStatus !== 'SUBSCRIBED') {
+          void refetchPosts({ background: postsReadyRef.current })
+        }
       },
     })
-    return unsubscribe
-  }, [])
+
+    // 구독 생성 직후 조회를 시작하고, 실제 SUBSCRIBED 전환 시 다시 reconcile해 사이 구간도 회수한다.
+    void refetchPosts({ background: false })
+
+    return () => {
+      active = false
+      mountedRef.current = false
+      fetchGenerationRef.current += 1
+      activeSyncRef.current = null
+      unsubscribe()
+    }
+  }, [applyEvent, enabled, refetchPosts])
 
   function toggleCategory(name) {
     setActiveCategories((prev) => {
@@ -101,6 +242,10 @@ export function usePosts(userLocation) {
       else next.add(name)
       return next
     })
+  }
+
+  function enableAllCategories() {
+    setActiveCategories(new Set(CATEGORIES))
   }
 
   // 카테고리 필터가 켜져 있고 만료되지 않은 게시글(위치 반경과 무관, 메뉴 탭의 "전체 커뮤니티"용).
@@ -121,5 +266,21 @@ export function usePosts(userLocation) {
     return filterPostsWithinRadius(activePosts, userLocation, COMMUNITY_RADIUS_METERS)
   }, [activePosts, userLocation])
 
-  return { posts, setPosts, activePosts, nearbyPosts, communityPosts, now, activeCategories, toggleCategory }
+  return {
+    posts,
+    setPosts,
+    postsStatus,
+    postsError,
+    realtimeStatus,
+    refetchPosts,
+    upsertPost,
+    removePost,
+    activePosts,
+    nearbyPosts,
+    communityPosts,
+    now,
+    activeCategories,
+    toggleCategory,
+    enableAllCategories,
+  }
 }

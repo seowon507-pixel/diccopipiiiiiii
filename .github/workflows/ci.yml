@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, kimiv, v5, Ui-kimi]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm audit --audit-level=high
+
+  migration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create base schema
+        run: docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/base_schema.sql
+      - name: Apply migrations twice
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260718_v1_security_hardening.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260719_v4_feature_hardening.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260718_v1_security_hardening.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260719_v4_feature_hardening.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260720024147_v6_auth_moderation_admin_security.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/migrations/20260720024147_v6_auth_moderation_admin_security.sql
+      - name: Verify security behavior
+        run: |
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v1.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v4.sql
+          docker exec -i "${{ job.services.postgres.id }}" psql -U postgres -d postgres < supabase/tests/verify_v6.sql

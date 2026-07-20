@@ -1,26 +1,54 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // 지도를 클릭한 지점의 건물/장소 정보를 먼저 보여주는 가벼운 미리보기.
 // 핀은 아직 서버에 생성되지 않은 상태 — "이 위치에 핀 만들기"를 눌러야 실제로 생성된다.
-function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, creatingPin }) {
+function PlacePreview({
+  position,
+  kakao,
+  onCreatePin,
+  onViewCommunity,
+  onClose,
+  creatingPin,
+  canCreatePin = false,
+  errorMessage = null,
+}) {
   const [address, setAddress] = useState(null)
   const [buildingName, setBuildingName] = useState(null)
   const [nearbyPlaceName, setNearbyPlaceName] = useState(null)
+  const [lookupStatus, setLookupStatus] = useState('idle')
+  const dialogRef = useRef(null)
+  const firstActionRef = useRef(null)
+  const closeRef = useRef(onClose)
+  const creatingRef = useRef(creatingPin)
+  closeRef.current = onClose
+  creatingRef.current = creatingPin
 
   useEffect(() => {
     setAddress(null)
     setBuildingName(null)
     setNearbyPlaceName(null)
+    setLookupStatus(position ? 'loading' : 'idle')
 
-    if (!kakao?.maps?.services || !position) return
+    if (!position) return undefined
+    if (!kakao?.maps?.services) {
+      setLookupStatus('unavailable')
+      return undefined
+    }
+
+    let cancelled = false
 
     try {
       const geocoder = new kakao.maps.services.Geocoder()
       geocoder.coord2Address(position.lng, position.lat, (results, status) => {
-        if (status !== kakao.maps.services.Status.OK || !results[0]) return
+        if (cancelled) return
+        if (status !== kakao.maps.services.Status.OK || !results[0]) {
+          setLookupStatus('empty')
+          return
+        }
         const { road_address: roadAddress, address: jibunAddress } = results[0]
         setAddress(roadAddress?.address_name ?? jibunAddress?.address_name ?? null)
         setBuildingName(roadAddress?.building_name || null)
+        setLookupStatus('success')
       })
 
       // 공원 등 이름 있는 장소(관광명소 카테고리)가 근처에 있으면 주소보다 우선해서 보여준다.
@@ -29,7 +57,7 @@ function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, 
       places.categorySearch(
         'AT4',
         (data, status) => {
-          if (status === kakao.maps.services.Status.OK && data[0]) {
+          if (!cancelled && status === kakao.maps.services.Status.OK && data[0]) {
             setNearbyPlaceName(data[0].place_name)
           }
         },
@@ -42,35 +70,105 @@ function PlacePreview({ position, kakao, onCreatePin, onViewCommunity, onClose, 
     } catch (err) {
       // 장소 정보 조회는 부가 기능이라, 여기서 에러가 나도 핀 생성/커뮤니티 보기는 계속 동작해야 한다.
       console.error('[PlacePreview] 장소 정보 조회 실패', err)
+      setLookupStatus('error')
+    }
+    return () => {
+      cancelled = true
     }
   }, [kakao, position?.lat, position?.lng])
+
+  useEffect(() => {
+    if (!position) return undefined
+    const previousFocus = document.activeElement
+    const focusTimer = window.requestAnimationFrame(() => firstActionRef.current?.focus())
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        if (!creatingRef.current) closeRef.current()
+        return
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+      const focusable = [...dialogRef.current.querySelectorAll('button:not(:disabled), [tabindex]:not([tabindex="-1"])')]
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.cancelAnimationFrame(focusTimer)
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocus?.focus?.()
+    }
+  }, [Boolean(position), position?.lat, position?.lng])
 
   if (!position) return null
 
   const displayName = nearbyPlaceName || buildingName
 
   return (
-    <div className="place-preview-backdrop" onClick={onClose}>
-      <div className="place-preview" onClick={(event) => event.stopPropagation()}>
+    <div
+      className="place-preview-backdrop"
+      onClick={(event) => event.target === event.currentTarget && !creatingPin && onClose()}
+    >
+      <div
+        ref={dialogRef}
+        className="place-preview"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="place-preview-title"
+      >
         <div className="place-preview-info">
-          {displayName && <p className="place-preview-name">{displayName}</p>}
+          <p id="place-preview-title" className="place-preview-name">{displayName || '선택한 위치'}</p>
           {address ? (
             <p className="place-preview-address">{address}</p>
+          ) : lookupStatus === 'loading' ? (
+            <p className="place-preview-address" role="status">주소를 찾는 중...</p>
           ) : (
             <p className="place-preview-address place-preview-address-empty">
-              이 위치의 주소 정보를 찾을 수 없어요.
+              이 위치는 주소를 못 찾았어요. 그래도 핀은 만들 수 있어요.
             </p>
           )}
         </div>
 
-        <button type="button" className="place-preview-action" disabled={creatingPin} onClick={onCreatePin}>
-          {creatingPin ? '핀 만드는 중...' : '📌 이 위치에 핀 만들기'}
+        <button
+          ref={canCreatePin ? firstActionRef : undefined}
+          type="button"
+          className="place-preview-action"
+          disabled={creatingPin || !canCreatePin}
+          onClick={onCreatePin}
+        >
+          {creatingPin ? '핀 만드는 중...' : canCreatePin ? '📌 이 위치에 핀 만들기' : '위치 확인 후 핀 만들기'}
         </button>
-        <button type="button" className="place-preview-action" onClick={onViewCommunity}>
+        <button
+          ref={canCreatePin ? undefined : firstActionRef}
+          type="button"
+          className="place-preview-action"
+          disabled={creatingPin}
+          onClick={() => onViewCommunity?.({
+            lat: position.lat,
+            lng: position.lng,
+            name: displayName || '선택한 위치',
+            address,
+          })}
+        >
           🏘 커뮤니티 보기
         </button>
 
-        <button type="button" className="place-preview-cancel" onClick={onClose}>
+        {!canCreatePin && (
+          <p className="place-preview-owner-note" role="status">핀을 만들려면 현재 위치 확인이 필요해요.</p>
+        )}
+
+        {errorMessage && <p className="dialog-error" role="alert">{errorMessage}</p>}
+
+        <button type="button" className="place-preview-cancel" disabled={creatingPin} onClick={onClose}>
           취소
         </button>
       </div>

@@ -1,16 +1,43 @@
 import { useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
+import NotificationSettings from './NotificationSettings.jsx'
+import RecoveryCode from './RecoveryCode.jsx'
+import ModerationPage from './ModerationPage.jsx'
+import AppIcon from './AppIcon.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
+import { getLocationPrivacy, setLocationPrivacy } from '../geoPrivacy'
+import { canModerate } from '../moderation'
 
 // 하단 커뮤니티 탭(내 주변 500m)과는 별개로, 거리 제한 없는 전체 커뮤니티와
 // 검색으로 고른 임의의 위치/건물 반경 커뮤니티를 여기서 볼 수 있다.
-function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onOpenCreateModal }) {
+function MenuPage({
+  posts,
+  activeCategories,
+  onToggleCategory,
+  onSelectPost,
+  onOpenCreateModal,
+  onOpenQuickPost,
+  quickPostDisabled = false,
+  userLocation,
+  now,
+  username,
+  appRole = 'user',
+  onSignOut,
+}) {
   const [view, setView] = useState('home')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searched, setSearched] = useState(false)
   const [selectedPlace, setSelectedPlace] = useState(null)
+  // 위치 보호(현재 위치에 올리는 글/채팅을 대략적 위치로 흐리기) — 기본 ON, 로컬 저장.
+  const [locationPrivacy, setLocationPrivacyState] = useState(getLocationPrivacy)
+
+  function toggleLocationPrivacy() {
+    const next = !locationPrivacy
+    setLocationPrivacy(next)
+    setLocationPrivacyState(next)
+  }
 
   const kakaoReady = Boolean(window.kakao?.maps?.services)
   // 이미 글이 있는 건물부터 먼저 보여준다(거리 제한 없음) — 건물을 눌러야 그 자리의
@@ -64,24 +91,154 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
     <div className="menu-page">
       {view === 'home' && (
         <>
-          <h1 className="menu-page-title">메뉴</h1>
-          <div className="menu-card-list">
-            <button type="button" className="menu-card" onClick={() => setView('all')}>
-              <span className="menu-card-icon">🏘</span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">전체 커뮤니티</span>
-                <span className="menu-card-desc">거리 제한 없이 모든 동네 글을 봐요</span>
-              </span>
-            </button>
-            <button type="button" className="menu-card" onClick={handleOpenLocation}>
-              <span className="menu-card-icon">📍</span>
-              <span className="menu-card-text">
-                <span className="menu-card-label">위치·건물별 커뮤니티</span>
-                <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
-              </span>
-            </button>
-          </div>
+          <header className="menu-hero">
+            <span className="menu-hero-mark" aria-hidden="true">동네</span>
+            <span className="menu-hero-copy">
+              <span className="page-eyebrow">우리동네알림</span>
+              <h1 className="menu-page-title">동네 생활판</h1>
+              <span className="menu-hero-desc">소식·알림·내 기록을 한곳에서 관리합니다</span>
+            </span>
+          </header>
+
+          <button
+            type="button"
+            className="menu-write-action"
+            disabled={quickPostDisabled}
+            onClick={onOpenQuickPost}
+          >
+            <AppIcon name="compose" size={18} />
+            지금 이 동네에 기록 남기기
+          </button>
+
+          <section className="menu-section" aria-labelledby="menu-explore-title">
+            <h2 id="menu-explore-title" className="menu-section-title">동네 둘러보기</h2>
+            <div className="menu-card-list">
+              <button type="button" className="menu-card" onClick={() => setView('all')}>
+                <span className="menu-card-icon menu-card-icon--community"><AppIcon name="globe" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">전체 커뮤니티</span>
+                  <span className="menu-card-desc">거리 제한 없이 모든 동네 글을 봐요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button type="button" className="menu-card" onClick={handleOpenLocation}>
+                <span className="menu-card-icon menu-card-icon--location"><AppIcon name="location" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">위치·건물별 커뮤니티</span>
+                  <span className="menu-card-desc">검색한 장소 반경 500m 글을 봐요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+            </div>
+          </section>
+
+          <section className="menu-section" aria-labelledby="menu-manage-title">
+            <h2 id="menu-manage-title" className="menu-section-title">내 정보와 안전</h2>
+            <div className="menu-card-list">
+              <button type="button" className="menu-card" onClick={() => setView('account')}>
+                <span className="menu-card-icon"><AppIcon name="user" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">내 계정</span>
+                  <span className="menu-card-desc">
+                    {username ? `${username}님으로 로그인 중` : '로그인 정보'}
+                  </span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button type="button" className="menu-card" onClick={() => setView('notifications')}>
+                <span className="menu-card-icon menu-card-icon--notification"><AppIcon name="bell" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">알림 설정</span>
+                  <span className="menu-card-desc">관심 지역·키워드의 새 소식을 놓치지 않아요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              <button type="button" className="menu-card" onClick={() => setView('recovery')}>
+                <span className="menu-card-icon menu-card-icon--recovery"><AppIcon name="key" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label">복구 코드</span>
+                  <span className="menu-card-desc">기기를 바꿔도 내 글과 핀을 이어서 관리해요</span>
+                </span>
+                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+              </button>
+              {canModerate(appRole) && (
+                <button type="button" className="menu-card menu-card--moderation" onClick={() => setView('moderation')}>
+                  <span className="menu-card-icon menu-card-icon--moderation"><AppIcon name="shield" size={22} /></span>
+                  <span className="menu-card-text">
+                    <span className="menu-card-label-row">
+                      <span className="menu-card-label">신고 관리</span>
+                      <span className="menu-card-status">{appRole === 'admin' ? '관리자' : '운영자'}</span>
+                    </span>
+                    <span className="menu-card-desc">신고된 게시글과 댓글을 검토하고 조치해요</span>
+                  </span>
+                  <AppIcon name="chevron" size={18} className="menu-card-arrow" />
+                </button>
+              )}
+              <button
+                type="button"
+                className="menu-card menu-card--privacy"
+                onClick={toggleLocationPrivacy}
+                aria-pressed={locationPrivacy}
+              >
+                <span className="menu-card-icon menu-card-icon--privacy"><AppIcon name="shield" size={22} /></span>
+                <span className="menu-card-text">
+                  <span className="menu-card-label-row">
+                    <span className="menu-card-label">내 위치 보호</span>
+                    {locationPrivacy && <span className="menu-card-status">보호 중</span>}
+                  </span>
+                  <span className="menu-card-desc">
+                    {locationPrivacy
+                      ? '글·채팅 위치를 동네 수준으로 안전하게 흐려요'
+                      : '정확한 현재 위치가 그대로 표시돼요'}
+                  </span>
+                </span>
+                <span className={`menu-card-toggle${locationPrivacy ? ' on' : ''}`} aria-hidden="true">
+                  <span className="menu-card-toggle-knob" />
+                </span>
+              </button>
+            </div>
+          </section>
         </>
+      )}
+
+      {view === 'account' && (
+        <>
+          <div className="menu-page-header">
+            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
+            <h1 className="menu-page-title">내 계정</h1>
+          </div>
+          <section className="recovery-section">
+            <h2 className="recovery-section-title">아이디</h2>
+            <p className="recovery-section-desc">{username}</p>
+          </section>
+          <button type="button" className="account-signout-button" onClick={onSignOut}>
+            로그아웃
+          </button>
+        </>
+      )}
+
+      {view === 'notifications' && (
+        <>
+          <div className="menu-page-header">
+            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
+            <h1 className="menu-page-title">알림 설정</h1>
+          </div>
+          <NotificationSettings userLocation={userLocation} />
+        </>
+      )}
+
+      {view === 'recovery' && (
+        <>
+          <div className="menu-page-header">
+            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
+            <h1 className="menu-page-title">복구 코드</h1>
+          </div>
+          <RecoveryCode />
+        </>
+      )}
+
+      {view === 'moderation' && canModerate(appRole) && (
+        <ModerationPage onBack={() => setView('home')} />
       )}
 
       {view === 'all' && (
@@ -95,6 +252,9 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
             activeCategories={activeCategories}
             onToggleCategory={onToggleCategory}
             onSelectPost={onSelectPost}
+            fallbackPosts={posts}
+            userLocation={userLocation}
+            now={now}
           />
         </>
       )}
@@ -132,7 +292,7 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
 
               {searched && (
                 <div className="place-search-results menu-location-results">
-                  {results.length === 0 && <p className="place-search-empty">검색 결과가 없어요.</p>}
+                  {results.length === 0 && <p className="place-search-empty">검색 결과가 없어요. 다른 키워드로 찾아볼까요?</p>}
                   {results.map((place) => (
                     <button
                       key={place.id}
@@ -178,6 +338,9 @@ function MenuPage({ posts, activeCategories, onToggleCategory, onSelectPost, onO
                 activeCategories={activeCategories}
                 onToggleCategory={onToggleCategory}
                 onSelectPost={onSelectPost}
+                fallbackPosts={posts}
+                userLocation={userLocation}
+                now={now}
               />
             </>
           )}

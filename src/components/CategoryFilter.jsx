@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { REALTIME_CATEGORIES, FREE_CATEGORIES, CATEGORY_COLORS } from '../categories'
+import AppIcon from './AppIcon.jsx'
 
-// 지도 상단 카테고리 필터 — 예전엔 칩이 가로로 나열돼 있었지만, 이제 메뉴 버튼 하나를 눌러야
-// 세로 목록(실시간 알림/커뮤니티 구분)이 펼쳐지고, 각 카테고리를 개별적으로 켜고 끌 수 있다.
+// 지도 우측 세로 아이콘 버튼 중 하나 — 아이콘만 있는 토글을 누르면 세로 목록(실시간 알림/
+// 커뮤니티 구분)이 펼쳐지고, 각 카테고리를 개별적으로 켜고 끌 수 있다.
 function CategoryFilter({ activeCategories, onToggle }) {
   const [open, setOpen] = useState(false)
 
@@ -12,9 +13,10 @@ function CategoryFilter({ activeCategories, onToggle }) {
         type="button"
         className={`category-filter-toggle${open ? ' active' : ''}`}
         aria-expanded={open}
+        aria-label="카테고리 필터"
         onClick={() => setOpen((prev) => !prev)}
       >
-        ☰ 카테고리
+        <AppIcon name="filter" size={21} />
       </button>
 
       {open && (

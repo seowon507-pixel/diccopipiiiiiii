@@ -21,3 +21,4 @@ npm-debug.log*
 .idea
 .vercel
 .env*
+!.env.example
