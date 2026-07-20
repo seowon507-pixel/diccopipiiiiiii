@@ -12,7 +12,7 @@ import Onboarding from './components/Onboarding.jsx'
 import AuthGate from './components/AuthGate.jsx'
 import AppIcon from './components/AppIcon.jsx'
 import { hasSeenOnboarding, markOnboardingSeen } from './onboarding'
-import { subscribeToAuthState, getNickname, signOut } from './auth'
+import { subscribeToAuthState, fetchMyUsername, signOut } from './auth'
 import { useUserLocation } from './useUserLocation'
 import { usePosts, EXTERNAL_DISTANCE_METERS } from './usePosts'
 import {
@@ -63,8 +63,8 @@ function App() {
       delete document.documentElement.dataset.uiTheme
     }
   }, [uiTheme])
-  // 이메일 인증 로그인 게이트 — undefined는 "아직 세션 확인 전"을 뜻한다. Supabase가 설정
-  // 안 된 개발/데모 환경(backendConfigurationError)에서는 로그인 게이트 자체가 의미 없으니
+  // 로그인 게이트 — undefined는 "아직 세션 확인 전"을 뜻한다. Supabase가 설정 안 된
+  // 개발/데모 환경(backendConfigurationError)에서는 로그인 게이트 자체가 의미 없으니
   // 곧바로 통과시킨다(다른 RPC들이 이미 이 환경에서 legacy/dummy로 graceful하게 빠지는 것과 같은 원칙).
   const [session, setSession] = useState(() => (backendConfigurationError ? null : undefined))
   useEffect(() => {
@@ -72,8 +72,29 @@ function App() {
     return subscribeToAuthState(setSession)
   }, [])
   const authReady = Boolean(backendConfigurationError) || session !== undefined
-  const nickname = session ? getNickname(session) : null
-  const authenticated = Boolean(backendConfigurationError) || Boolean(session && nickname)
+  const authenticated = Boolean(backendConfigurationError) || Boolean(session)
+
+  // 로그인 후 고유 아이디(profiles.username) 조회 — undefined는 "아직 조회 전", null은
+  // "로그인은 했지만 아이디를 아직 안 정함"을 뜻한다. userId가 바뀔 때만(로그인/로그아웃) 다시 조회한다.
+  const [username, setUsername] = useState(null)
+  useEffect(() => {
+    const userId = session?.user?.id
+    if (!userId) {
+      setUsername(null)
+      return
+    }
+    setUsername(undefined)
+    let cancelled = false
+    fetchMyUsername(userId)
+      .then((value) => { if (!cancelled) setUsername(value) })
+      .catch((err) => {
+        console.error('[App] 아이디 조회 실패', err)
+        if (!cancelled) setUsername(null)
+      })
+    return () => { cancelled = true }
+  }, [session?.user?.id])
+  const profileReady = Boolean(backendConfigurationError) || username !== undefined
+  const hasUsername = Boolean(backendConfigurationError) || Boolean(username)
 
   // 온보딩을 보기 전에는 위치 권한 요청을 미룬다.
   const [onboarded, setOnboarded] = useState(hasSeenOnboarding)
@@ -426,12 +447,13 @@ function App() {
     setActiveTab(nextTab)
   }
 
-  // 세션 확인이 끝나기 전에는 로그인 화면이 잠깐 번쩍이는 것을 막기 위해 아무것도 그리지 않는다.
-  if (!authReady) return null
+  // 세션/프로필 확인이 끝나기 전에는 로그인 화면이 잠깐 번쩍이는 것을 막기 위해 아무것도 그리지 않는다.
+  if (!authReady || (authenticated && !profileReady)) return null
 
-  // 로그인(이메일 인증) + 닉네임 설정이 끝나기 전에는 온보딩/앱 대신 로그인 게이트를 보여준다.
-  if (!authenticated) {
-    return <AuthGate session={session} />
+  // 로그인(이메일+비밀번호 가입/인증 또는 인증코드) + 아이디 설정이 끝나기 전에는
+  // 온보딩/앱 대신 로그인 게이트를 보여준다.
+  if (!authenticated || !hasUsername) {
+    return <AuthGate session={authenticated ? session : null} onUsernameSaved={setUsername} />
   }
 
   // 온보딩 미완료 시 앱(위치 요청 포함) 대신 소개 화면을 먼저 보여준다.
@@ -537,7 +559,7 @@ function App() {
             active={activeTab === 'menu'}
             uiTheme={uiTheme}
             onUiThemeChange={setUiTheme}
-            nickname={nickname}
+            username={username}
             onSignOut={signOut}
           />
         </section>

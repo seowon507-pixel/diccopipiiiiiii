@@ -3748,6 +3748,72 @@ textarea:focus-visible {
   text-align: center;
 }
 
+.auth-gate-success {
+  font-size: 0.82rem;
+  color: var(--color-accent);
+  margin: 0;
+  text-align: center;
+}
+
+.auth-gate-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.auth-gate-tabs--sub {
+  margin-top: calc(var(--space-2) * -1);
+  margin-bottom: var(--space-4);
+}
+
+.auth-gate-tab,
+.auth-gate-subtab {
+  flex: 1;
+  min-height: 44px;
+  border: 1.5px solid var(--color-gray-250);
+  border-radius: var(--radius-lg);
+  background: var(--color-white);
+  color: var(--color-gray-400);
+  font-size: 0.88rem;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.auth-gate-tab[aria-selected="true"],
+.auth-gate-subtab[aria-selected="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+  color: var(--color-accent);
+}
+
+.auth-gate-username-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.auth-gate-username-row .auth-gate-input {
+  flex: 1;
+}
+
+.auth-gate-check-button {
+  flex-shrink: 0;
+  min-height: 52px;
+  padding: 0 var(--space-3);
+  border: 1.5px solid var(--color-gray-250);
+  border-radius: var(--radius-xl);
+  background: var(--color-white);
+  color: var(--color-gray-800);
+  font-size: 0.85rem;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.auth-gate-check-button:disabled {
+  color: var(--color-gray-350);
+  cursor: not-allowed;
+}
+
 /* --------------------------------------------------------------------------
    v6 UI refresh — 기능 구조는 유지하고, 지도·피드·메뉴를 하나의 시각 언어로 통합한다.
    -------------------------------------------------------------------------- */

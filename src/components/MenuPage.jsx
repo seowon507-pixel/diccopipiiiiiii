@@ -23,7 +23,7 @@ function MenuPage({
   onUiThemeChange,
   userLocation,
   now,
-  nickname,
+  username,
   onSignOut,
 }) {
   const [view, setView] = useState('home')
@@ -205,7 +205,7 @@ function MenuPage({
                 <span className="menu-card-text">
                   <span className="menu-card-label">내 계정</span>
                   <span className="menu-card-desc">
-                    {nickname ? `${nickname}님으로 로그인 중` : '로그인 정보'}
+                    {username ? `${username}님으로 로그인 중` : '로그인 정보'}
                   </span>
                 </span>
                 <AppIcon name="chevron" size={18} className="menu-card-arrow" />
@@ -260,8 +260,8 @@ function MenuPage({
             <h1 className="menu-page-title">내 계정</h1>
           </div>
           <section className="recovery-section">
-            <h2 className="recovery-section-title">닉네임</h2>
-            <p className="recovery-section-desc">{nickname}</p>
+            <h2 className="recovery-section-title">아이디</h2>
+            <p className="recovery-section-desc">{username}</p>
           </section>
           <button type="button" className="account-signout-button" onClick={onSignOut}>
             로그아웃
