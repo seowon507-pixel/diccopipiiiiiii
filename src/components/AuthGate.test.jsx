@@ -8,7 +8,6 @@ const authMocks = vi.hoisted(() => ({
   sendLoginLink: vi.fn(),
   checkUsernameAvailable: vi.fn(),
   saveUsername: vi.fn(),
-  signOut: vi.fn(),
   isValidUsernameFormat: vi.fn((value) => /^[a-zA-Z0-9_]{2,20}$/.test(value.trim())),
 }))
 
@@ -60,30 +59,5 @@ describe('AuthGate accessibility and validation', () => {
     render(<AuthGate session={null} statusError="세션을 확인하지 못했습니다." />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('세션을 확인하지 못했습니다.')
-  })
-
-  it('중복 아이디 오류를 일반 저장 실패와 구분한다', async () => {
-    const user = userEvent.setup()
-    authMocks.saveUsername.mockRejectedValue({
-      code: '23505',
-      message: 'duplicate key value violates unique constraint',
-    })
-    render(<AuthGate session={{ user: { id: 'user-1' } }} />)
-
-    await user.type(screen.getByLabelText('아이디'), 'member_01')
-    await user.click(screen.getByRole('button', { name: '시작하기' }))
-
-    expect(screen.getByRole('alert')).toHaveTextContent('이미 사용 중인 아이디예요.')
-  })
-
-  it('세션 만료 시 다시 로그인해야 함을 안내한다', async () => {
-    const user = userEvent.setup()
-    authMocks.saveUsername.mockRejectedValue({ code: 'AUTH_SESSION_EXPIRED' })
-    render(<AuthGate session={{ user: { id: 'user-1' } }} />)
-
-    await user.type(screen.getByLabelText('아이디'), 'member_01')
-    await user.click(screen.getByRole('button', { name: '시작하기' }))
-
-    expect(screen.getByRole('alert')).toHaveTextContent('로그인 세션이 만료됐어요.')
   })
 })

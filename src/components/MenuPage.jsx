@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import CommunityFeed from './CommunityFeed.jsx'
 import BuildingList from './BuildingList.jsx'
 import NotificationSettings from './NotificationSettings.jsx'
-import RecoveryCode from './RecoveryCode.jsx'
 import ModerationPage from './ModerationPage.jsx'
 import AppIcon from './AppIcon.jsx'
 import { filterPostsWithinRadius, groupPostsByBuilding, COMMUNITY_RADIUS_METERS } from '../usePosts'
@@ -21,7 +20,7 @@ function MenuPage({
   quickPostDisabled = false,
   userLocation,
   now,
-  username,
+  accountEmail,
   appRole = 'user',
   onSignOut,
 }) {
@@ -140,7 +139,7 @@ function MenuPage({
                 <span className="menu-card-text">
                   <span className="menu-card-label">내 계정</span>
                   <span className="menu-card-desc">
-                    {username ? `${username}님으로 로그인 중` : '로그인 정보'}
+                    {accountEmail ? `${accountEmail}로 로그인 중` : '로그인 정보'}
                   </span>
                 </span>
                 <AppIcon name="chevron" size={18} className="menu-card-arrow" />
@@ -150,14 +149,6 @@ function MenuPage({
                 <span className="menu-card-text">
                   <span className="menu-card-label">알림 설정</span>
                   <span className="menu-card-desc">관심 지역·키워드의 새 소식을 놓치지 않아요</span>
-                </span>
-                <AppIcon name="chevron" size={18} className="menu-card-arrow" />
-              </button>
-              <button type="button" className="menu-card" onClick={() => setView('recovery')}>
-                <span className="menu-card-icon menu-card-icon--recovery"><AppIcon name="key" size={22} /></span>
-                <span className="menu-card-text">
-                  <span className="menu-card-label">복구 코드</span>
-                  <span className="menu-card-desc">기기를 바꿔도 내 글과 핀을 이어서 관리해요</span>
                 </span>
                 <AppIcon name="chevron" size={18} className="menu-card-arrow" />
               </button>
@@ -208,8 +199,8 @@ function MenuPage({
             <h1 className="menu-page-title">내 계정</h1>
           </div>
           <section className="recovery-section">
-            <h2 className="recovery-section-title">아이디</h2>
-            <p className="recovery-section-desc">{username}</p>
+            <h2 className="recovery-section-title">이메일</h2>
+            <p className="recovery-section-desc">{accountEmail}</p>
           </section>
           <button type="button" className="account-signout-button" onClick={onSignOut}>
             로그아웃
@@ -224,16 +215,6 @@ function MenuPage({
             <h1 className="menu-page-title">알림 설정</h1>
           </div>
           <NotificationSettings userLocation={userLocation} />
-        </>
-      )}
-
-      {view === 'recovery' && (
-        <>
-          <div className="menu-page-header">
-            <button type="button" className="menu-back-button" onClick={() => setView('home')}>‹ 메뉴</button>
-            <h1 className="menu-page-title">복구 코드</h1>
-          </div>
-          <RecoveryCode />
         </>
       )}
 

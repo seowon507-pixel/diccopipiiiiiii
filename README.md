@@ -138,7 +138,7 @@ VITE_DEV_LOCATION_OVERRIDE=true
 
 ### 현재 브랜치 검증 결과
 
-- Vitest: 23개 테스트 파일, 77개 테스트 통과
+- Vitest: 23개 테스트 파일, 72개 테스트 통과
 - Vite production build 성공
 - PostgreSQL 17: CI에서 보안 migration 3개를 각각 2회 적용하고 v1/v4/v6 통합 검증 실행
 - 실제 브라우저: 글 작성·직접 수정·삭제 확인/취소, 필터 복구, 핀 생성·삭제, 장소검색 표시·Escape 닫기·포커스 복귀, 채팅/지도 탭 왕복 확인

@@ -1,10 +1,9 @@
 import { supabase, backendConfigurationError } from './supabaseClient'
 
-// 로그인(이메일+비밀번호 회원가입/이메일 인증, 인증코드 로그인)과 고유 아이디(profiles.username)
-// 관리. posts/pins의 익명 owner_secret/device_secret 소유권 시스템(myPosts.js, notifications.js)과는
-// 완전히 별개다 — 이건 "앱을 쓰려면 로그인부터"라는 진입 게이트일 뿐이고, 글/핀 삭제 권한
+// 로그인(이메일+비밀번호 회원가입/이메일 인증, 인증코드 로그인) 관리. posts/pins의 익명
+// owner_secret/device_secret 소유권 시스템(myPosts.js, notifications.js)과는 완전히
+// 별개다 — 이건 "앱을 쓰려면 로그인부터"라는 진입 게이트일 뿐이고, 글/핀 삭제 권한
 // 확인은 여전히 owner_secret 기반 RPC가 담당한다(건드리지 않음).
-const USERNAME_PATTERN = /^[a-zA-Z0-9_]{2,20}$/
 
 function requireAuth() {
   if (!supabase) throw backendConfigurationError
@@ -86,77 +85,4 @@ export async function sendLoginLink(email) {
 
 export async function signOut() {
   await requireAuth().signOut()
-}
-
-export function isValidUsernameFormat(value) {
-  return USERNAME_PATTERN.test(value.trim())
-}
-
-function isRetryableAuthError(error) {
-  const code = String(error?.code ?? '').toUpperCase()
-  const message = String(error?.message ?? '').toLowerCase()
-  return Number(error?.status) === 401
-    || code === 'PGRST301'
-    || code === 'PGRST302'
-    || message.includes('authentication required')
-    || message.includes('invalid claim: missing sub')
-    || (message.includes('jwt') && (message.includes('expired') || message.includes('invalid')))
-}
-
-function expiredSessionError(cause) {
-  const error = new Error('로그인 세션이 만료되었습니다.')
-  error.code = 'AUTH_SESSION_EXPIRED'
-  error.cause = cause
-  return error
-}
-
-// 로그인 직후에는 새 access token이 이 탭의 요청에 반영되기 전에 RPC가 인증 오류를
-// 반환할 수 있다. 인증 오류에만 세션을 한 번 새로고침하고, 권한·중복·검증·네트워크
-// 오류는 원래 오류를 그대로 전달한다. refreshSession은 실패를 throw하지 않고 error 필드로
-// 반환하므로 그 값과 실제 session 존재 여부를 반드시 확인한다.
-async function withSessionRefreshRetry(fn) {
-  try {
-    return await fn()
-  } catch (error) {
-    if (!isRetryableAuthError(error)) throw error
-
-    console.warn('[auth] 인증 세션을 새로고침하고 요청을 한 번만 재시도합니다')
-    const { data, error: refreshError } = await supabase.auth.refreshSession()
-    if (refreshError || !data?.session?.access_token) {
-      throw expiredSessionError(refreshError ?? error)
-    }
-    return fn()
-  }
-}
-
-// 로그인한 사용자 본인의 아이디를 조회한다. profiles에는 본인 행만 읽을 수 있는 RLS
-// select 정책이 있어(다른 사용자 아이디는 이 경로로 못 봄), 별도 RPC 없이 직접 쿼리한다.
-export async function fetchMyUsername(userId) {
-  if (!supabase) throw backendConfigurationError
-
-  return withSessionRefreshRetry(async () => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('username')
-      .eq('user_id', userId)
-      .maybeSingle()
-    if (error) throw error
-    return data?.username ?? null
-  })
-}
-
-// 아이디를 저장한다 — 미리 중복확인을 받지 않고 바로 시도하고, 이미 있으면 그때 에러로
-// 알려준다(한 단계 줄임). 동시에 같은 아이디를 노리는 경쟁 상황은 set_username RPC 내부의
-// 유니크 인덱스가 최종적으로 막아준다.
-export async function saveUsername(username) {
-  if (!supabase) throw backendConfigurationError
-
-  const trimmed = username.trim()
-  if (!isValidUsernameFormat(trimmed)) throw new RangeError('아이디는 영문/숫자/밑줄 2~20자로 입력해주세요.')
-
-  return withSessionRefreshRetry(async () => {
-    const { data, error } = await supabase.rpc('set_username', { p_username: trimmed })
-    if (error) throw error
-    return data?.username ?? trimmed
-  })
 }
