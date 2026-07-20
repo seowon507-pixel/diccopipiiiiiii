@@ -12,7 +12,7 @@ import Onboarding from './components/Onboarding.jsx'
 import AuthGate from './components/AuthGate.jsx'
 import AppIcon from './components/AppIcon.jsx'
 import { hasSeenOnboarding, markOnboardingSeen } from './onboarding'
-import { subscribeToAuthState, fetchMyUsername, signOut } from './auth'
+import { subscribeToAuthState, signOut } from './auth'
 import { fetchCurrentAppRole } from './moderation'
 import { useUserLocation } from './useUserLocation'
 import { usePosts, EXTERNAL_DISTANCE_METERS } from './usePosts'
@@ -84,33 +84,11 @@ function App() {
   const authReady = Boolean(backendConfigurationError) || session !== undefined
   const authenticated = Boolean(backendConfigurationError) || Boolean(session)
 
-  // 로그인 후 고유 아이디(profiles.username) 조회 — undefined는 "아직 조회 전", null은
-  // "로그인은 했지만 아이디를 아직 안 정함"을 뜻한다. userId가 바뀔 때만(로그인/로그아웃) 다시 조회한다.
-  const [username, setUsername] = useState(null)
-  useEffect(() => {
-    const userId = session?.user?.id
-    if (!userId) {
-      setUsername(null)
-      return
-    }
-    setUsername(undefined)
-    let cancelled = false
-    fetchMyUsername(userId)
-      .then((value) => { if (!cancelled) setUsername(value) })
-      .catch((err) => {
-        console.error('[App] 아이디 조회 실패', err)
-        if (!cancelled) setUsername(null)
-      })
-    return () => { cancelled = true }
-  }, [session?.user?.id])
-  const profileReady = Boolean(backendConfigurationError) || username !== undefined
-  const hasUsername = Boolean(backendConfigurationError) || Boolean(username)
-
   // 관리자 여부는 사용자 편의를 위한 메뉴 노출에만 사용한다. 실제 신고 데이터 접근과
   // 조치 권한은 Supabase의 RLS/RPC가 매 요청마다 다시 검증한다.
   const [appRole, setAppRole] = useState('user')
   useEffect(() => {
-    if (!session?.user?.id || !hasUsername || backendConfigurationError) {
+    if (!session?.user?.id || backendConfigurationError) {
       setAppRole('user')
       return undefined
     }
@@ -124,11 +102,11 @@ function App() {
         if (!cancelled) setAppRole('user')
       })
     return () => { cancelled = true }
-  }, [hasUsername, session?.user?.id])
+  }, [session?.user?.id])
 
-  // 로그인·아이디·온보딩이 모두 끝나기 전에는 위치 권한과 게시글 API 요청을 시작하지 않는다.
+  // 로그인·온보딩이 모두 끝나기 전에는 위치 권한과 게시글 API 요청을 시작하지 않는다.
   const [onboarded, setOnboarded] = useState(hasSeenOnboarding)
-  const appDataEnabled = authenticated && hasUsername && onboarded
+  const appDataEnabled = authenticated && onboarded
   const {
     displayLocation,
     trustedLocation,
@@ -478,19 +456,12 @@ function App() {
     setActiveTab(nextTab)
   }
 
-  // 세션/프로필 확인이 끝나기 전에는 로그인 화면이 잠깐 번쩍이는 것을 막기 위해 아무것도 그리지 않는다.
-  if (!authReady || (authenticated && !profileReady)) return null
+  // 세션 확인이 끝나기 전에는 로그인 화면이 잠깐 번쩍이는 것을 막기 위해 아무것도 그리지 않는다.
+  if (!authReady) return null
 
-  // 로그인(이메일+비밀번호 가입/인증 또는 인증코드) + 아이디 설정이 끝나기 전에는
-  // 온보딩/앱 대신 로그인 게이트를 보여준다.
-  if (!authenticated || !hasUsername) {
-    return (
-      <AuthGate
-        session={authenticated ? session : null}
-        statusError={authStatusError}
-        onUsernameSaved={setUsername}
-      />
-    )
+  // 로그인(이메일+비밀번호 가입/인증 또는 인증코드)이 끝나기 전에는 온보딩/앱 대신 로그인 게이트를 보여준다.
+  if (!authenticated) {
+    return <AuthGate statusError={authStatusError} />
   }
 
   // 온보딩 미완료 시 앱(위치 요청 포함) 대신 소개 화면을 먼저 보여준다.
@@ -593,7 +564,7 @@ function App() {
             now={now}
             onOpenQuickPost={() => setQuickPostOpen(true)}
             quickPostDisabled={!isLocationTrusted}
-            username={username}
+            accountEmail={session?.user?.email ?? null}
             appRole={appRole}
             onSignOut={signOut}
           />

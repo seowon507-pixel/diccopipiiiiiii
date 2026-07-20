@@ -3,9 +3,6 @@ import {
   signUpWithPassword,
   signInWithPassword,
   sendLoginLink,
-  saveUsername,
-  isValidUsernameFormat,
-  signOut,
 } from '../auth'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -29,21 +26,18 @@ function handleTabKeyDown(event, values, currentValue, onSelect) {
     ?.focus()
 }
 
-// 앱 시작 시 온보딩보다 먼저 뜨는 로그인 게이트.
-// - session이 없으면: 회원가입(이메일+비밀번호, 이메일 인증 필요)과 로그인(비밀번호 또는
-//   이메일 링크, 둘 다 이미 가입된 계정 전용) 중 고르는 화면을 보여준다.
-// - session은 있지만 아이디(profiles.username)가 없으면: 아이디 설정 화면을 보여준다.
-// 로그인/아이디 저장 성공 이후의 상태 갱신은 App.jsx가 처리하므로(세션 구독, 프로필 재조회),
-// 여기서는 그 결과로 다시 그려지는 것만 기다리면 된다(이메일 링크를 눌러 새 탭이 열리면 그
-// 탭에서 세션이 생기고, 원래 탭은 onAuthStateChange로 뒤늦게 알게 된다).
-function AuthGate({ session, statusError = null, onUsernameSaved }) {
+// 앱 시작 시 온보딩보다 먼저 뜨는 로그인 게이트. session이 없으면: 회원가입(이메일+비밀번호,
+// 이메일 인증 필요)과 로그인(비밀번호 또는 이메일 링크, 둘 다 이미 가입된 계정 전용) 중 고르는
+// 화면을 보여준다. 로그인 성공 이후의 상태 갱신은 App.jsx가 처리하므로(세션 구독), 여기서는
+// 그 결과로 다시 그려지는 것만 기다리면 된다(이메일 링크를 눌러 새 탭이 열리면 그 탭에서 세션이
+// 생기고, 원래 탭은 onAuthStateChange로 뒤늦게 알게 된다).
+function AuthGate({ statusError = null }) {
   const [tab, setTab] = useState('signup') // 'signup' | 'login'
   const [loginMethod, setLoginMethod] = useState('password') // 'password' | 'link'
   const [linkSent, setLinkSent] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
-  const [username, setUsernameValue] = useState('')
   const [signedUp, setSignedUp] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
@@ -114,66 +108,6 @@ function AuthGate({ session, statusError = null, onUsernameSaved }) {
     } finally {
       setSubmitting(false)
     }
-  }
-
-  async function handleSaveUsername(event) {
-    event.preventDefault()
-    const trimmed = username.trim()
-    if (!isValidUsernameFormat(trimmed) || submitting) return
-
-    setSubmitting(true)
-    resetFeedback()
-    try {
-      const saved = await saveUsername(trimmed)
-      onUsernameSaved?.(saved)
-    } catch (err) {
-      console.error('[AuthGate] 아이디 저장 실패', err)
-      setError(err?.message?.includes('taken')
-        ? '이미 사용 중인 아이디예요. 다른 아이디를 입력해주세요.'
-        : '아이디를 저장하지 못했어요. 다시 시도해주세요.')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  if (session) {
-    return (
-      <div className="auth-gate">
-        <div className="auth-gate-body">
-          <span className="auth-gate-logo" aria-hidden="true">👋</span>
-          <h1 className="auth-gate-title">아이디를 정해주세요</h1>
-          <p className="auth-gate-desc">동네 이웃들에게 보여질 이름이에요. 영문/숫자/밑줄 2~20자.</p>
-          {statusError && <p className="auth-gate-error" role="alert">{statusError}</p>}
-
-          <form className="auth-gate-form" onSubmit={handleSaveUsername}>
-            <label className="sr-only" htmlFor="auth-username">아이디</label>
-            <input
-              id="auth-username"
-              className="auth-gate-input"
-              value={username}
-              maxLength={20}
-              autoComplete="off"
-              placeholder="아이디"
-              onChange={(event) => setUsernameValue(event.target.value)}
-            />
-            {username.trim().length > 0 && !isValidUsernameFormat(username.trim()) && (
-              <p className="auth-gate-error" role="alert">영문, 숫자, 밑줄(_)만 사용해서 2~20자로 입력해주세요.</p>
-            )}
-            {error && <p className="auth-gate-error" role="alert">{error}</p>}
-            <button
-              type="submit"
-              className="auth-gate-submit"
-              disabled={!isValidUsernameFormat(username.trim()) || submitting}
-            >
-              {submitting ? '저장 중...' : '시작하기'}
-            </button>
-            <button type="button" className="auth-gate-link" onClick={() => signOut()}>
-              로그아웃하고 다시 로그인하기
-            </button>
-          </form>
-        </div>
-      </div>
-    )
   }
 
   return (
