@@ -67,18 +67,34 @@ export function isValidUsernameFormat(value) {
   return USERNAME_PATTERN.test(value.trim())
 }
 
+// 로그인 직후에는 새로 발급된 access token이 아직 이 탭의 요청에 완전히 반영되기 전에
+// 요청이 나가 401을 한 번 맞는 경우가 실제로 있었다(다른 탭과의 refresh token 경쟁 등).
+// 그 순간의 401 하나 때문에 "아이디 중복확인이 안 된다"처럼 보이는 걸 막기 위해, 아이디
+// 관련 호출 3개는 실패 시 세션을 한 번 강제로 새로고침한 뒤 딱 한 번만 재시도한다.
+async function withSessionRefreshRetry(fn) {
+  try {
+    return await fn()
+  } catch (err) {
+    console.warn('[auth] 요청 실패, 세션을 새로고침하고 한 번만 재시도합니다', err)
+    await supabase.auth.refreshSession()
+    return fn()
+  }
+}
+
 // 로그인한 사용자 본인의 아이디를 조회한다. profiles에는 본인 행만 읽을 수 있는 RLS
 // select 정책이 있어(다른 사용자 아이디는 이 경로로 못 봄), 별도 RPC 없이 직접 쿼리한다.
 export async function fetchMyUsername(userId) {
   if (!supabase) throw backendConfigurationError
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('username')
-    .eq('user_id', userId)
-    .maybeSingle()
-  if (error) throw error
-  return data?.username ?? null
+  return withSessionRefreshRetry(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('username')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (error) throw error
+    return data?.username ?? null
+  })
 }
 
 // 아이디 중복확인. is_username_available RPC가 형식 검증까지 서버에서 한 번 더 하므로
@@ -86,9 +102,11 @@ export async function fetchMyUsername(userId) {
 export async function checkUsernameAvailable(username) {
   if (!supabase) throw backendConfigurationError
 
-  const { data, error } = await supabase.rpc('is_username_available', { p_username: username.trim() })
-  if (error) throw error
-  return Boolean(data)
+  return withSessionRefreshRetry(async () => {
+    const { data, error } = await supabase.rpc('is_username_available', { p_username: username.trim() })
+    if (error) throw error
+    return Boolean(data)
+  })
 }
 
 // 중복확인을 통과한 아이디를 실제로 저장한다. 동시에 같은 아이디를 노리는 경쟁 상황은
@@ -99,7 +117,9 @@ export async function saveUsername(username) {
   const trimmed = username.trim()
   if (!isValidUsernameFormat(trimmed)) throw new RangeError('아이디는 영문/숫자/밑줄 2~20자로 입력해주세요.')
 
-  const { data, error } = await supabase.rpc('set_username', { p_username: trimmed })
-  if (error) throw error
-  return data?.username ?? trimmed
+  return withSessionRefreshRetry(async () => {
+    const { data, error } = await supabase.rpc('set_username', { p_username: trimmed })
+    if (error) throw error
+    return data?.username ?? trimmed
+  })
 }

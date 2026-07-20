@@ -157,12 +157,15 @@ function AuthGate({ session, onUsernameSaved }) {
               <button
                 type="button"
                 className="auth-gate-check-button"
-                disabled={!isValidUsernameFormat(username) || usernameCheck === 'checking'}
+                disabled={!isValidUsernameFormat(username.trim()) || usernameCheck === 'checking'}
                 onClick={handleCheckUsername}
               >
                 {usernameCheck === 'checking' ? '확인 중...' : '중복확인'}
               </button>
             </div>
+            {username.trim().length > 0 && !isValidUsernameFormat(username.trim()) && (
+              <p className="auth-gate-error" role="alert">영문, 숫자, 밑줄(_)만 사용해서 2~20자로 입력해주세요.</p>
+            )}
             {usernameCheck === 'available' && <p className="auth-gate-success">사용할 수 있는 아이디예요.</p>}
             {usernameCheck === 'taken' && <p className="auth-gate-error" role="alert">이미 사용 중인 아이디예요.</p>}
             {error && <p className="auth-gate-error" role="alert">{error}</p>}
